@@ -5,7 +5,6 @@ import type { FooterTab } from './FooterNavbar';
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Lock } from 'lucide-react';
 
 const APP_LOCK_ENABLED_KEY = 'blaze-app-lock-enabled';
 const APP_LOCK_BIOMETRIC_ID_KEY = 'blaze-app-lock-biometric-id';
@@ -36,7 +35,6 @@ const createRandomBuffer = (length = 32) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState<FooterTab>('home');
-  const [lockEnabled, setLockEnabled] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [hasPassedLockGate, setHasPassedLockGate] = useState(false);
   const [biometricCredentialId, setBiometricCredentialId] = useState<string | null>(null);
@@ -62,7 +60,6 @@ const App = () => {
     localStorage.removeItem('blaze-app-lock-pin-hash');
 
     const hasBiometricLock = Boolean(storedBiometricId);
-    setLockEnabled(hasBiometricLock);
     setBiometricCredentialId(storedBiometricId);
     // Always gate app entry first: lock if credential exists, otherwise force setup screen.
     setIsLocked(hasBiometricLock);
@@ -121,7 +118,6 @@ const App = () => {
       localStorage.setItem(APP_LOCK_BIOMETRIC_ID_KEY, credentialId);
       localStorage.setItem(APP_LOCK_ENABLED_KEY, 'true');
       setBiometricCredentialId(credentialId);
-      setLockEnabled(true);
       setIsLocked(false);
       setShowLockSetup(false);
       setHasPassedLockGate(true);
@@ -163,11 +159,6 @@ const App = () => {
     } finally {
       setIsUnlockingBiometric(false);
     }
-  };
-
-  const handleManualLock = () => {
-    if (!lockEnabled || !hasAnyUnlockMethod) return;
-    setIsLocked(true);
   };
 
   return (
