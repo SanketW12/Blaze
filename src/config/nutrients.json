@@ -1,0 +1,61 @@
+{
+  "dashboardPriority": [
+    "macronutrient",
+    "amino_acid",
+    "fatty_acid",
+    "vitamin",
+    "mineral"
+  ],
+  "nutrients": [
+    { "key": "calories", "label": "Calories", "unit": "kcal", "category": "macronutrient", "defaultDaily": 2400 },
+    { "key": "protein", "label": "Protein", "unit": "g", "category": "macronutrient", "defaultDaily": 120 },
+    { "key": "carbohydrates", "label": "Carbohydrates", "unit": "g", "category": "macronutrient", "defaultDaily": 275 },
+    { "key": "fat", "label": "Fat", "unit": "g", "category": "macronutrient", "defaultDaily": 75 },
+    { "key": "fiber", "label": "Fiber", "unit": "g", "category": "macronutrient", "defaultDaily": 35 },
+    { "key": "water", "label": "Water", "unit": "ml", "category": "macronutrient", "defaultDaily": 3200 },
+
+    { "key": "histidine", "label": "Histidine", "unit": "mg", "category": "amino_acid", "defaultDaily": 800 },
+    { "key": "isoleucine", "label": "Isoleucine", "unit": "mg", "category": "amino_acid", "defaultDaily": 1600 },
+    { "key": "leucine", "label": "Leucine", "unit": "mg", "category": "amino_acid", "defaultDaily": 3120 },
+    { "key": "lysine", "label": "Lysine", "unit": "mg", "category": "amino_acid", "defaultDaily": 2400 },
+    { "key": "methionine", "label": "Methionine", "unit": "mg", "category": "amino_acid", "defaultDaily": 1520 },
+    { "key": "phenylalanine", "label": "Phenylalanine", "unit": "mg", "category": "amino_acid", "defaultDaily": 2000 },
+    { "key": "threonine", "label": "Threonine", "unit": "mg", "category": "amino_acid", "defaultDaily": 1200 },
+    { "key": "tryptophan", "label": "Tryptophan", "unit": "mg", "category": "amino_acid", "defaultDaily": 320 },
+    { "key": "valine", "label": "Valine", "unit": "mg", "category": "amino_acid", "defaultDaily": 2080 },
+
+    { "key": "omega3", "label": "Omega-3 (Alpha-Linolenic Acid - ALA)", "unit": "mg", "category": "fatty_acid", "defaultDaily": 1800 },
+    { "key": "omega6", "label": "Omega-6 (Linoleic Acid - LA)", "unit": "mg", "category": "fatty_acid", "defaultDaily": 17000 },
+
+    { "key": "vitamin_a", "label": "Vitamin A", "unit": "mcg", "category": "vitamin", "defaultDaily": 900 },
+    { "key": "vitamin_c", "label": "Vitamin C", "unit": "mg", "category": "vitamin", "defaultDaily": 100 },
+    { "key": "vitamin_d", "label": "Vitamin D", "unit": "mcg", "category": "vitamin", "defaultDaily": 50 },
+    { "key": "vitamin_e", "label": "Vitamin E", "unit": "mg", "category": "vitamin", "defaultDaily": 15 },
+    { "key": "vitamin_k", "label": "Vitamin K", "unit": "mcg", "category": "vitamin", "defaultDaily": 120 },
+    { "key": "vitamin_b1", "label": "Vitamin B1 (Thiamine)", "unit": "mg", "category": "vitamin", "defaultDaily": 1.2 },
+    { "key": "vitamin_b2", "label": "Vitamin B2 (Riboflavin)", "unit": "mg", "category": "vitamin", "defaultDaily": 1.3 },
+    { "key": "vitamin_b3", "label": "Vitamin B3 (Niacin)", "unit": "mg", "category": "vitamin", "defaultDaily": 16 },
+    { "key": "vitamin_b5", "label": "Vitamin B5 (Pantothenic Acid)", "unit": "mg", "category": "vitamin", "defaultDaily": 5 },
+    { "key": "vitamin_b6", "label": "Vitamin B6 (Pyridoxine)", "unit": "mg", "category": "vitamin", "defaultDaily": 1.5 },
+    { "key": "biotin", "label": "Biotin (Vitamin B7)", "unit": "mcg", "category": "vitamin", "defaultDaily": 30 },
+    { "key": "folate", "label": "Folate (Vitamin B9)", "unit": "mcg", "category": "vitamin", "defaultDaily": 400 },
+    { "key": "vitamin_b12", "label": "Vitamin B12 (Cobalamin)", "unit": "mcg", "category": "vitamin", "defaultDaily": 4 },
+
+    { "key": "calcium", "label": "Calcium", "unit": "mg", "category": "mineral", "defaultDaily": 1100 },
+    { "key": "magnesium", "label": "Magnesium", "unit": "mg", "category": "mineral", "defaultDaily": 420 },
+    { "key": "phosphorus", "label": "Phosphorus", "unit": "mg", "category": "mineral", "defaultDaily": 700 },
+    { "key": "potassium", "label": "Potassium", "unit": "mg", "category": "mineral", "defaultDaily": 3400 },
+    { "key": "sodium", "label": "Sodium", "unit": "mg", "category": "mineral", "defaultDaily": 1500 },
+    { "key": "chloride", "label": "Chloride", "unit": "mg", "category": "mineral", "defaultDaily": 2300 },
+    { "key": "sulfur", "label": "Sulfur", "unit": "mg", "category": "mineral" },
+    { "key": "iron", "label": "Iron", "unit": "mg", "category": "mineral", "defaultDaily": 9 },
+    { "key": "zinc", "label": "Zinc", "unit": "mg", "category": "mineral", "defaultDaily": 12 },
+    { "key": "iodine", "label": "Iodine", "unit": "mcg", "category": "mineral", "defaultDaily": 150 },
+    { "key": "selenium", "label": "Selenium", "unit": "mcg", "category": "mineral", "defaultDaily": 55 },
+    { "key": "copper", "label": "Copper", "unit": "mg", "category": "mineral", "defaultDaily": 0.9 },
+    { "key": "manganese", "label": "Manganese", "unit": "mg", "category": "mineral", "defaultDaily": 2.3 },
+    { "key": "chromium", "label": "Chromium", "unit": "mcg", "category": "mineral", "defaultDaily": 35 },
+    { "key": "molybdenum", "label": "Molybdenum", "unit": "mcg", "category": "mineral", "defaultDaily": 45 },
+    { "key": "fluoride", "label": "Fluoride", "unit": "mg", "category": "mineral", "defaultDaily": 4 }
+  ]
+}
