@@ -1,33 +1,6 @@
-import OpenAI from "openai";
-
 const MAX_MESSAGE_LENGTH = 4000;
 export type ChatApiMode = "responses" | "conversation";
-
-let openAIClient: OpenAI | null = null;
-
-const getOpenAIClient = () => {
-  if (openAIClient) return openAIClient;
-
-  const apiKey = import.meta.env.VITE_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing VITE_API_KEY");
-  }
-
-  openAIClient = new OpenAI({
-    apiKey,
-    dangerouslyAllowBrowser: true,
-  });
-
-  return openAIClient;
-};
-
-const getDefaultConversationId = () => {
-  const conversationId = import.meta.env.VITE_CONVERSATION_ID;
-  if (!conversationId) return undefined;
-  const normalized = conversationId.trim().replace(/^['"]|['"]$/g, "");
-  return normalized || undefined;
-};
-
+const CHAT_FUNCTION_PATH = "/.netlify/functions/chat";
 const DEFAULT_MODEL = "gpt-4o-mini";
 
 const normalizeChatError = (error: unknown) => {
@@ -40,29 +13,16 @@ export const getOrCreateThreadId = async (
   mode: ChatApiMode = "responses",
 ) => {
   const candidateId = existingThreadId?.trim();
-
   if (mode === "responses") {
-    // Response chaining expects a previous response id (typically starts with "resp_").
     if (candidateId?.startsWith("resp_")) return candidateId;
     return undefined;
   }
 
   if (candidateId?.startsWith("conv_")) return candidateId;
-  const envConversationId = getDefaultConversationId();
-  if (envConversationId?.startsWith("conv_")) return envConversationId;
-
-  const client = getOpenAIClient();
-  const conversationApi = (
-    client as unknown as { conversations?: { create: () => Promise<{ id: string }> } }
-  ).conversations;
-  if (!conversationApi?.create) {
-    throw new Error("Conversations API is unavailable in this SDK version.");
-  }
-  const conversation = await conversationApi.create();
-  return conversation.id;
+  return undefined;
 };
 
-export const extractAssistantText = (response: {
+const extractAssistantText = (response: {
   output_text?: string;
   output?: Array<{
     type?: string;
@@ -85,6 +45,98 @@ export const extractAssistantText = (response: {
       .filter(Boolean) ?? [];
 
   return textParts.join("\n").trim();
+};
+
+const sendMessageViaBrowserOpenAI = async ({
+  conversationId,
+  content,
+  imageDataUrl,
+  mealContext,
+  mode,
+}: {
+  conversationId?: string;
+  content: string;
+  imageDataUrl?: string;
+  mealContext?: string;
+  mode: ChatApiMode;
+}) => {
+  const apiKey = import.meta.env.VITE_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error("Local dev fallback requires VITE_API_KEY.");
+  }
+
+  const { default: OpenAI } = await import("openai");
+  const client = new OpenAI({
+    apiKey,
+    dangerouslyAllowBrowser: true,
+  });
+
+  const contextId = await getOrCreateThreadId(conversationId, mode);
+  const payload: {
+    model: string;
+    input: Array<{
+      role: "user";
+      content: Array<
+        | { type: "input_text"; text: string }
+        | { type: "input_image"; image_url: string; detail: "auto" }
+      >;
+    }>;
+    instructions?: string;
+    previous_response_id?: string;
+    conversation?: string;
+  } = {
+    model: DEFAULT_MODEL,
+    input: [
+      {
+        role: "user",
+        content: [
+          ...(content.trim()
+            ? [{ type: "input_text" as const, text: content.trim() }]
+            : []),
+          ...(imageDataUrl?.trim()
+            ? [
+                {
+                  type: "input_image" as const,
+                  image_url: imageDataUrl.trim(),
+                  detail: "auto" as const,
+                },
+              ]
+            : []),
+        ],
+      },
+    ],
+  };
+
+  if (mealContext?.trim()) {
+    payload.instructions = mealContext.trim();
+  }
+
+  if (mode === "conversation" && contextId) {
+    payload.conversation = contextId;
+  } else if (mode === "responses" && contextId) {
+    payload.previous_response_id = contextId;
+  }
+
+  const response = await client.responses.create(payload);
+  const assistantText = extractAssistantText(
+    response as unknown as {
+      output_text?: string;
+      output?: Array<{
+        type?: string;
+        role?: string;
+        content?: Array<{ type?: string; text?: string }>;
+      }>;
+    },
+  );
+
+  if (!assistantText) {
+    throw new Error("Response API returned an empty message.");
+  }
+
+  return {
+    conversationId: mode === "conversation" ? contextId ?? response.id : response.id,
+    assistantText,
+  };
 };
 
 export const sendMessageToAssistant = async ({
@@ -115,76 +167,52 @@ export const sendMessageToAssistant = async ({
   }
 
   try {
-    const client = getOpenAIClient();
-    const contextId = await getOrCreateThreadId(conversationId, mode);
+    const baseUrl = import.meta.env.VITE_CHAT_FUNCTION_URL?.trim() || CHAT_FUNCTION_PATH;
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        conversationId,
+        content: trimmedMessage,
+        imageDataUrl: trimmedImageDataUrl,
+        mealContext: mealContext?.trim() || undefined,
+        mode,
+      }),
+    });
 
-    const payload: {
-      model: string;
-      input: Array<{
-        role: "user";
-        content: Array<
-          | { type: "input_text"; text: string }
-          | { type: "input_image"; image_url: string; detail: "auto" }
-        >;
-      }>;
-      instructions?: string;
-      previous_response_id?: string;
-      conversation?: string;
-    } = {
-      model: DEFAULT_MODEL,
-      input: [
-        {
-          role: "user",
-          content: [
-            ...(trimmedMessage
-              ? [{ type: "input_text" as const, text: trimmedMessage }]
-              : []),
-            ...(trimmedImageDataUrl
-              ? [
-                  {
-                    type: "input_image" as const,
-                    image_url: trimmedImageDataUrl,
-                    detail: "auto" as const,
-                  },
-                ]
-              : []),
-          ],
-        },
-      ],
+    const data = (await response.json()) as {
+      error?: string;
+      assistantText?: string;
+      conversationId?: string;
     };
 
-    if (mealContext?.trim()) {
-      payload.instructions = mealContext.trim();
+    if (!response.ok) {
+      throw new Error(data.error || "Chat request failed.");
     }
-
-    if (mode === "conversation" && contextId) {
-      payload.conversation = contextId;
-    } else if (mode === "responses" && contextId) {
-      payload.previous_response_id = contextId;
-    }
-
-    const response = await client.responses.create(payload);
-
-    const assistantText = extractAssistantText(
-      response as unknown as {
-        output_text?: string;
-        output?: Array<{
-          type?: string;
-          role?: string;
-          content?: Array<{ type?: string; text?: string }>;
-        }>;
-      },
-    );
-
-    if (!assistantText) {
+    if (!data.assistantText?.trim()) {
       throw new Error("Response API returned an empty message.");
     }
 
     return {
-      conversationId: mode === "conversation" ? contextId ?? response.id : response.id,
-      assistantText,
+      conversationId: data.conversationId,
+      assistantText: data.assistantText,
     };
   } catch (error) {
+    if (import.meta.env.DEV) {
+      try {
+        return await sendMessageViaBrowserOpenAI({
+          conversationId,
+          content: trimmedMessage,
+          imageDataUrl: trimmedImageDataUrl,
+          mealContext,
+          mode,
+        });
+      } catch (fallbackError) {
+        throw new Error(normalizeChatError(fallbackError));
+      }
+    }
     throw new Error(normalizeChatError(error));
   }
 };

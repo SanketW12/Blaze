@@ -38,10 +38,31 @@ npm install
 
 Create a `.env` file in project root:
 
+```env
+# Firebase (public web config)
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MEASUREMENT_ID=
+
+# Frontend -> Netlify Function (optional override)
+VITE_CHAT_FUNCTION_URL=/.netlify/functions/chat
+
+# Server-side only (Netlify)
+OPENAI_API_KEY=
+OPENAI_CONVERSATION_ID=
+OPENAI_MODEL=gpt-4o-mini
+```
+
 Notes:
 
-- `VITE_API_KEY` is currently used directly in client code.
-- Move OpenAI calls server-side for production security.
+- Do not use `VITE_API_KEY` for OpenAI anymore.
+- Set `OPENAI_API_KEY` in Netlify environment variables (server-side only).
+- `OPENAI_CONVERSATION_ID` is optional default conversation context for conversation mode.
+- Local fallback: with plain `npm run dev`, if `/.netlify/functions/chat` is unavailable, the app can use `VITE_API_KEY` in development only.
 
 ### 3) Run locally
 
@@ -50,6 +71,8 @@ npm run dev
 ```
 
 Default dev server: `http://localhost:3000`
+
+For local testing of Netlify Functions, use `netlify dev` if you want `/.netlify/functions/*` routes available.
 
 ## Scripts
 
@@ -84,6 +107,13 @@ To avoid localStorage quota issues when sending chat images:
 - Persisted chat history is sanitized and capped
 
 If you still hit stale quota once after upgrade, clear site storage and reload.
+
+## Netlify Deploy Notes
+
+- Chat requests are served by `netlify/functions/chat.ts`.
+- `netlify.toml` sets `SECRETS_SCAN_OMIT_KEYS` for Firebase public config keys.
+- Keep secrets scanning enabled.
+- Remove `VITE_API_KEY` from Netlify UI env vars and add `OPENAI_API_KEY` instead.
 
 ## App Lock Behavior
 
