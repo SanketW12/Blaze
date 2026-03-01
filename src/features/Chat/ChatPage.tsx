@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -25,9 +25,11 @@ import { Dialog, DialogContent, DialogPanel, DialogTitle } from '@/components/ui
 import {
   type ChatApiMode,
   getOrCreateThreadId,
-  sendMessageToAssistant
+  sendMessageToAssistant,
+  STREAM_END_MARKER
 } from './chatservice';
 import mealModeResponseSchema from '@/config/meal-mode-response-schema.json';
+import { cn } from '@/lib/utils';
 
 interface MealDraft {
   food_name: string;
@@ -65,9 +67,28 @@ Rules:
 - source must be one of: text, image, manual.
 - Focus only on meal nutrition responses.`;
 
+const MARKDOWN_COMPONENTS = {
+  a: (props: React.ComponentProps<'a'>) => (
+    <a
+      {...props}
+      className="underline"
+      rel="noreferrer"
+      target="_blank"
+    />
+  ),
+  code: (props: React.ComponentProps<'code'>) => (
+    <code
+      {...props}
+      className="rounded bg-black/20 px-1 py-0.5 font-mono text-xs"
+    />
+  ),
+  p: (props: React.ComponentProps<'p'>) => <p {...props} className="text-sm whitespace-pre-wrap" />
+};
+
 const ChatPage = () => {
   const chatHistory = useAppStore(state => state.chatHistory);
   const addChatMessage = useAppStore(state => state.addChatMessage);
+  const setChatHistory = useAppStore(state => state.setChatHistory);
   const addMeal = useAppStore(state => state.addMeal);
   const userProfile = useAppStore(state => state.userProfile);
   const dailyLog = useAppStore(state => state.dailyLog);
@@ -87,10 +108,85 @@ const ChatPage = () => {
   const [mealDraft, setMealDraft] = useState<MealDraft | null>(null);
   const [isAddingMeal, setIsAddingMeal] = useState(false);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isCurrentRequestStreaming, setIsCurrentRequestStreaming] = useState(false);
   const messagesScrollRootRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const activeRequestIdRef = useRef<string | null>(null);
+  const cancelledRequestIdsRef = useRef<Set<string>>(new Set());
+  const activeAbortControllerRef = useRef<AbortController | null>(null);
+  const hasStreamingAssistant = useMemo(
+    () =>
+      chatHistory.some(messageItem => {
+        const messageMetadata = messageItem.metadata as Record<string, unknown> | undefined;
+        return messageItem.role === 'assistant' && messageMetadata?.isStreaming === true;
+      }),
+    [chatHistory]
+  );
+  const renderedChatMessages = useMemo(
+    () => (
+      <>
+        {chatHistory.map(messageItem => {
+          const messageMetadata = messageItem.metadata as
+            | Record<string, unknown>
+            | undefined;
+          const messageImageDataUrl =
+            typeof messageMetadata?.imageDataUrl === 'string'
+              ? messageMetadata.imageDataUrl
+              : null;
+          const isStreamingMessage = messageMetadata?.isStreaming === true;
 
-  const profileContext = (() => {
+          return (
+            <div
+              className={cn('w-[85%] rounded-xl px-3 py-2 invisible', {
+                'ml-auto bg-primary text-primary-foreground': messageItem.role === 'user',
+                'mr-auto bg-muted': messageItem.role !== 'user',
+                visible: Boolean(messageItem?.content) || isStreamingMessage
+              })}
+              key={messageItem.id}
+            >
+              {messageImageDataUrl ? (
+                <img
+                  alt="Attached message"
+                  className="mb-2 max-h-56 w-full rounded-md object-cover"
+                  src={messageImageDataUrl}
+                />
+              ) : null}
+
+
+              <ReactMarkdown
+                components={MARKDOWN_COMPONENTS}
+                remarkPlugins={[remarkGfm]}
+              >
+                {messageItem.content}
+              </ReactMarkdown>
+              {isStreamingMessage && !messageItem.content.trim() ? (
+                <p className="text-sm text-muted-foreground">
+                  Blaze is generating an answer...
+                </p>
+              ) : null}
+              {isStreamingMessage && messageItem.content.trim() ? (
+                <span
+                  aria-hidden="true"
+                  className="ml-1 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-current align-middle opacity-80"
+                />
+              ) : null}
+            </div>
+          );
+        })}
+        {isLoading && (!isCurrentRequestStreaming || !hasStreamingAssistant) ? (
+          <div className="mr-auto w-[85%] rounded-xl bg-muted px-3 py-2">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              <span>Blaze is generating an answer...</span>
+            </div>
+          </div>
+        ) : null}
+      </>
+    ),
+    [chatHistory, hasStreamingAssistant, isCurrentRequestStreaming, isLoading]
+  );
+
+  const profileContext = useMemo(() => {
     if (!includeMyInfo || !userProfile) return undefined;
     const {
       required_nutrients: _requiredNutrients,
@@ -99,7 +195,7 @@ const ChatPage = () => {
     } = userProfile;
     return `MY PROFILE INFO (for personalization):
 ${JSON.stringify(safeProfileContext, null, 2)}`;
-  })();
+  }, [includeMyInfo, userProfile]);
 
   const parseMealDraft = (assistantText: string): MealDraft | null => {
     const trimmed = assistantText.trim();
@@ -220,7 +316,14 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
     setError('chat', null);
 
     try {
+      const requestId = crypto.randomUUID();
+      activeRequestIdRef.current = requestId;
+      const abortController = new AbortController();
+      activeAbortControllerRef.current = abortController;
       const contextId = await getOrCreateThreadId(existingThreadId, apiMode);
+      const shouldStreamAssistant = composerMode !== 'meal';
+      setIsCurrentRequestStreaming(shouldStreamAssistant);
+      const streamingAssistantMessageId = shouldStreamAssistant ? crypto.randomUUID() : null;
       addChatMessage({
         id: crypto.randomUUID(),
         user_id: 'local-user',
@@ -248,6 +351,20 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
         imageInputRef.current.value = '';
       }
 
+      if (streamingAssistantMessageId) {
+        addChatMessage({
+          id: streamingAssistantMessageId,
+          user_id: 'assistant',
+          role: 'assistant',
+          content: '',
+          metadata:
+            apiMode === 'conversation'
+              ? { apiMode, conversationId: contextId, isStreaming: true }
+              : { apiMode, previousResponseId: contextId, isStreaming: true },
+          created_at: new Date().toISOString()
+        });
+      }
+
       const { assistantText, conversationId: nextContextId } =
         await sendMessageToAssistant({
           conversationId: contextId,
@@ -256,23 +373,69 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
           mealContext: [composerMode === 'meal' ? MEAL_MODE_CONTEXT : undefined, profileContext]
             .filter((value): value is string => Boolean(value?.trim()))
             .join('\n\n'),
-          mode: apiMode
+          mode: apiMode,
+          stream: shouldStreamAssistant,
+          endMarker: STREAM_END_MARKER,
+          abortSignal: abortController.signal,
+          onStreamChunk: streamingAssistantMessageId
+            ? streamedText => {
+              if (cancelledRequestIdsRef.current.has(requestId)) return;
+              const currentHistory = useAppStore.getState().chatHistory;
+              const nextHistory = currentHistory.map(item =>
+                item.id === streamingAssistantMessageId
+                  ? {
+                    ...item,
+                    content: streamedText,
+                    metadata: {
+                      ...(item.metadata as Record<string, unknown>),
+                      isStreaming: true
+                    }
+                  }
+                  : item
+              );
+              setChatHistory(nextHistory);
+            }
+            : undefined
         });
 
-      addChatMessage({
-        id: crypto.randomUUID(),
-        user_id: 'assistant',
-        role: 'assistant',
-        content: assistantText,
-        metadata:
-          apiMode === 'conversation'
-            ? { apiMode, conversationId: nextContextId }
-            : {
-              apiMode,
-              previousResponseId: nextContextId
-            },
-        created_at: new Date().toISOString()
-      });
+      if (cancelledRequestIdsRef.current.has(requestId)) {
+        return;
+      }
+
+      if (streamingAssistantMessageId) {
+        const currentHistory = useAppStore.getState().chatHistory;
+        const nextHistory = currentHistory.map(item =>
+          item.id === streamingAssistantMessageId
+            ? {
+              ...item,
+              content: assistantText,
+              metadata:
+                apiMode === 'conversation'
+                  ? { apiMode, conversationId: nextContextId }
+                  : {
+                    apiMode,
+                    previousResponseId: nextContextId
+                  }
+            }
+            : item
+        );
+        setChatHistory(nextHistory);
+      } else {
+        addChatMessage({
+          id: crypto.randomUUID(),
+          user_id: 'assistant',
+          role: 'assistant',
+          content: assistantText,
+          metadata:
+            apiMode === 'conversation'
+              ? { apiMode, conversationId: nextContextId }
+              : {
+                apiMode,
+                previousResponseId: nextContextId
+              },
+          created_at: new Date().toISOString()
+        });
+      }
 
       if (composerMode === 'meal') {
         const parsedMeal = parseMealDraft(assistantText);
@@ -281,10 +444,61 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
         }
       }
     } catch (error) {
+      if (activeRequestIdRef.current && cancelledRequestIdsRef.current.has(activeRequestIdRef.current)) {
+        return;
+      }
+      const currentHistory = useAppStore.getState().chatHistory;
+      const cleanedHistory = currentHistory.filter(item => {
+        const metadata = item.metadata as Record<string, unknown> | undefined;
+        const isStreaming = metadata?.isStreaming === true;
+        return !(isStreaming && !item.content.trim());
+      });
+      if (cleanedHistory.length !== currentHistory.length) {
+        setChatHistory(cleanedHistory);
+      }
       setError('chat', error instanceof Error ? error.message : 'Unable to send message.');
     } finally {
+      const activeRequestId = activeRequestIdRef.current;
+      if (activeRequestId) {
+        cancelledRequestIdsRef.current.delete(activeRequestId);
+      }
+      activeRequestIdRef.current = null;
+      activeAbortControllerRef.current = null;
+      setIsCurrentRequestStreaming(false);
       setLoading('chat', false);
     }
+  };
+
+  const handleStopGeneration = () => {
+    const activeRequestId = activeRequestIdRef.current;
+    if (!activeRequestId) return;
+    cancelledRequestIdsRef.current.add(activeRequestId);
+    activeAbortControllerRef.current?.abort();
+
+    const currentHistory = useAppStore.getState().chatHistory;
+    const cleanedHistory = currentHistory
+      .filter(item => {
+        const metadata = item.metadata as Record<string, unknown> | undefined;
+        const isStreaming = metadata?.isStreaming === true;
+        return !(isStreaming && !item.content.trim());
+      })
+      .map(item => {
+        const metadata = item.metadata as Record<string, unknown> | undefined;
+        if (metadata?.isStreaming !== true) return item;
+        const { isStreaming: _isStreaming, ...restMetadata } = metadata;
+        return {
+          ...item,
+          metadata: restMetadata
+        };
+      });
+
+    if (cleanedHistory.length !== currentHistory.length) {
+      setChatHistory(cleanedHistory);
+    }
+
+    setIsCurrentRequestStreaming(false);
+    setLoading('chat', false);
+    setError('chat', null);
   };
 
   const handleImagePick = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -344,6 +558,9 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
     };
   }, [chatHistory.length]);
 
+
+
+
   useEffect(() => {
     // Keep latest message visible on initial open and on every new message.
     const timer = window.setTimeout(() => {
@@ -351,6 +568,18 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
     }, 0);
     return () => window.clearTimeout(timer);
   }, [chatHistory.length]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const timer = window.setTimeout(() => {
+      const viewport = messagesScrollRootRef.current?.querySelector(
+        '[data-slot="scroll-area-viewport"]'
+      ) as HTMLDivElement | null;
+      if (!viewport) return;
+      viewport.scrollTop = viewport.scrollHeight;
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isLoading, chatHistory.length]);
 
   return (
     <main className="min-h-screen  text-foreground">
@@ -393,64 +622,7 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
                   ref={messagesScrollRootRef}
                 >
                   <div className="space-y-3">
-                    {chatHistory.map(messageItem => {
-                      const messageMetadata = messageItem.metadata as
-                        | Record<string, unknown>
-                        | undefined;
-                      const messageImageDataUrl =
-                        typeof messageMetadata?.imageDataUrl === 'string'
-                          ? messageMetadata.imageDataUrl
-                          : null;
-
-                      return (
-                        <div
-                          className={
-                            messageItem.role === 'user'
-                              ? 'ml-auto w-[85%] rounded-xl bg-primary px-3 py-2 text-primary-foreground'
-                              : 'mr-auto w-[85%] rounded-xl bg-muted px-3 py-2'
-                          }
-                          key={messageItem.id}
-                        >
-                          {messageImageDataUrl ? (
-                            <img
-                              alt="Attached message"
-                              className="mb-2 max-h-56 w-full rounded-md object-cover"
-                              src={messageImageDataUrl}
-                            />
-                          ) : null}
-                          <ReactMarkdown
-                            components={{
-                              a: props => (
-                                <a
-                                  {...props}
-                                  className="underline"
-                                  rel="noreferrer"
-                                  target="_blank"
-                                />
-                              ),
-                              code: props => (
-                                <code
-                                  {...props}
-                                  className="rounded bg-black/20 px-1 py-0.5 font-mono text-xs"
-                                />
-                              ),
-                              p: props => <p {...props} className="text-sm whitespace-pre-wrap" />
-                            }}
-                            remarkPlugins={[remarkGfm]}
-                          >
-                            {messageItem.content}
-                          </ReactMarkdown>
-                        </div>
-                      );
-                    })}
-                    {isLoading ? (
-                      <div className="mr-auto w-[85%] rounded-xl bg-muted px-3 py-2">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Loader2 className="size-4 animate-spin" />
-                          <span>Blaze is generating an answer...</span>
-                        </div>
-                      </div>
-                    ) : null}
+                    {renderedChatMessages}
                   </div>
                 </ScrollArea>
                 {!isAtBottom ? (
@@ -576,18 +748,31 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
                       </Badge>
                     </div>
                     <Separator className="hidden h-4 sm:block" orientation="vertical" />
-                    <Button
-                      aria-label="Send"
-                      className="ml-auto shrink-0"
-                      disabled={(!message.trim() && !attachedImage) || isLoading}
-                      onClick={() => {
-                        void handleSend();
-                      }}
-                      size="icon-xs"
-                      type="button"
-                    >
-                      <ArrowUp />
-                    </Button>
+                    {isLoading ? (
+                      <Button
+                        aria-label="Stop generation"
+                        className="ml-auto shrink-0"
+                        onClick={handleStopGeneration}
+                        size="icon-xs"
+                        type="button"
+                        variant="destructive"
+                      >
+                        <X />
+                      </Button>
+                    ) : (
+                      <Button
+                        aria-label="Send"
+                        className="ml-auto shrink-0"
+                        disabled={!message.trim() && !attachedImage}
+                        onClick={() => {
+                          void handleSend();
+                        }}
+                        size="icon-xs"
+                        type="button"
+                      >
+                        <ArrowUp />
+                      </Button>
+                    )}
                   </InputGroupAddon>
                 </InputGroup>
               </div>

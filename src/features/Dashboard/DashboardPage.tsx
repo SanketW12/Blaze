@@ -36,7 +36,7 @@ import {
 import { addNutrientMaps, firebaseDataService, normalizeNutrientMap } from '@/firebase';
 import { NUTRIENTS_CONFIG } from '@/config';
 import { useAppStore } from '@/store';
-import { sendMessageToAssistant } from '@/features/Chat/chatservice';
+import { sendMessageToAssistant, STREAM_END_MARKER } from '@/features/Chat/chatservice';
 import {
   DASHBOARD_MOCK_CONSUMED_NUTRIENTS,
   DASHBOARD_MOCK_REQUIRED_NUTRIENTS,
@@ -728,7 +728,9 @@ const DashboardPage = () => {
           requiredNutrients: profileRequirements,
           mustCompleteKeys
         }),
-        mode: 'conversation'
+        mode: 'conversation',
+        stream: true,
+        endMarker: STREAM_END_MARKER
       });
 
       const parsedPlan = parseSuggestedMealPlan(assistantText);

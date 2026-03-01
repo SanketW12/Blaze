@@ -1,13 +1,18 @@
 const MAX_MESSAGE_LENGTH = 4000;
 export type ChatApiMode = "responses" | "conversation";
 const CHAT_FUNCTION_PATH = "/.netlify/functions/chat";
-const CHAT_BACKGROUND_FUNCTION_PATH = "/.netlify/functions/chat-background";
-const CHAT_STATUS_FUNCTION_PATH = "/.netlify/functions/chat-status";
 const DEFAULT_MODEL = "gpt-4o-mini";
-const BACKGROUND_POLL_INTERVAL_MS = 1200;
-const BACKGROUND_MAX_POLL_MS = 150000;
+export const STREAM_END_MARKER = "__BLAZE_STREAM_END__";
 
 const normalizeChatError = (error: unknown) => {
+  if (
+    error instanceof Error &&
+    (error.name === "AbortError" ||
+      error.message.toLowerCase().includes("abort") ||
+      error.message.toLowerCase().includes("cancel"))
+  ) {
+    return "Request cancelled.";
+  }
   if (error instanceof Error) return error.message;
   return "Unable to send message right now. Please try again.";
 };
@@ -26,46 +31,6 @@ export const getOrCreateThreadId = async (
   return undefined;
 };
 
-const extractAssistantText = (response: {
-  output_text?: string;
-  output?: Array<{
-    type?: string;
-    role?: string;
-    content?: Array<{ type?: string; text?: string }>;
-  }>;
-}) => {
-  if (typeof response.output_text === "string" && response.output_text.trim()) {
-    return response.output_text.trim();
-  }
-
-  const textParts =
-    response.output
-      ?.filter((item) => item.type === "message" && item.role === "assistant")
-      .flatMap((item) => item.content ?? [])
-      .filter(
-        (part) => part.type === "output_text" && typeof part.text === "string",
-      )
-      .map((part) => part.text?.trim() ?? "")
-      .filter(Boolean) ?? [];
-
-  return textParts.join("\n").trim();
-};
-
-const sleep = (ms: number) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-
-const createJobId = () => {
-  if (
-    typeof globalThis.crypto !== "undefined" &&
-    typeof globalThis.crypto.randomUUID === "function"
-  ) {
-    return globalThis.crypto.randomUUID();
-  }
-  return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-};
-
 const parseJsonSafely = async (response: Response) => {
   const rawBody = await response.text();
   try {
@@ -81,82 +46,41 @@ const parseJsonSafely = async (response: Response) => {
   }
 };
 
-const getFunctionBaseUrls = () => {
-  const configuredChatFunctionUrl = import.meta.env.VITE_CHAT_FUNCTION_URL?.trim();
-  if (!configuredChatFunctionUrl) {
+const createBufferedChunkEmitter = (onStreamChunk?: (textSoFar: string) => void) => {
+  if (!onStreamChunk) {
     return {
-      syncUrl: CHAT_FUNCTION_PATH,
-      backgroundUrl: CHAT_BACKGROUND_FUNCTION_PATH,
-      statusUrl: CHAT_STATUS_FUNCTION_PATH,
+      emit: (_text: string) => {},
+      flush: (_text: string) => {},
     };
   }
 
-  const backgroundUrl = configuredChatFunctionUrl.replace(
-    /\/chat(?:\/)?$/,
-    "/chat-background",
-  );
-  const statusUrl = configuredChatFunctionUrl.replace(/\/chat(?:\/)?$/, "/chat-status");
+  let latestText = "";
+  let rafId: number | null = null;
 
-  return {
-    syncUrl: configuredChatFunctionUrl,
-    backgroundUrl,
-    statusUrl,
+  const flush = (text: string) => {
+    latestText = text;
+    if (rafId !== null && typeof window !== "undefined") {
+      window.cancelAnimationFrame(rafId);
+      rafId = null;
+    }
+    onStreamChunk(latestText);
   };
-};
 
-const pollBackgroundJob = async ({
-  statusUrl,
-  jobId,
-}: {
-  statusUrl: string;
-  jobId: string;
-}) => {
-  const startedAt = Date.now();
+  const emit = (text: string) => {
+    latestText = text;
+    if (rafId !== null) return;
+    if (typeof window === "undefined") {
+      onStreamChunk(latestText);
+      return;
+    }
 
-  while (Date.now() - startedAt <= BACKGROUND_MAX_POLL_MS) {
-    const statusResponse = await fetch(`${statusUrl}?jobId=${encodeURIComponent(jobId)}`, {
-      method: "GET",
+    rafId = window.requestAnimationFrame(() => {
+      rafId = null;
+      onStreamChunk(latestText);
     });
-    const { data, rawBody } = await parseJsonSafely(statusResponse);
+  };
 
-    if (!statusResponse.ok) {
-      throw new Error(
-        (typeof data.error === "string" && data.error) ||
-          "Unable to fetch background job status.",
-      );
-    }
-
-    const status = typeof data.status === "string" ? data.status : "queued";
-    if (status === "completed") {
-      const assistantText =
-        typeof data.assistantText === "string" ? data.assistantText.trim() : "";
-      if (!assistantText) {
-        throw new Error("Response API returned an empty message.");
-      }
-      return {
-        assistantText,
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : undefined,
-      };
-    }
-
-    if (status === "failed") {
-      throw new Error(
-        (typeof data.error === "string" && data.error) ||
-          "Background chat task failed.",
-      );
-    }
-
-    if (rawBody.toLowerCase().includes("inactivity timeout")) {
-      throw new Error("Background function status polling timed out.");
-    }
-
-    await sleep(BACKGROUND_POLL_INTERVAL_MS);
-  }
-
-  throw new Error(
-    "The AI response is taking longer than expected. Please retry in a moment.",
-  );
+  return { emit, flush };
 };
 
 const sendMessageViaBrowserOpenAI = async ({
@@ -165,12 +89,16 @@ const sendMessageViaBrowserOpenAI = async ({
   imageDataUrl,
   mealContext,
   mode,
+  onStreamChunk,
+  abortSignal,
 }: {
   conversationId?: string;
   content: string;
   imageDataUrl?: string;
   mealContext?: string;
   mode: ChatApiMode;
+  onStreamChunk?: (textSoFar: string) => void;
+  abortSignal?: AbortSignal;
 }) => {
   const apiKey = import.meta.env.VITE_API_KEY?.trim();
   if (!apiKey) {
@@ -229,25 +157,65 @@ const sendMessageViaBrowserOpenAI = async ({
     payload.previous_response_id = contextId;
   }
 
-  const response = await client.responses.create(payload);
-  const assistantText = extractAssistantText(
-    response as unknown as {
-      output_text?: string;
-      output?: Array<{
-        type?: string;
-        role?: string;
-        content?: Array<{ type?: string; text?: string }>;
-      }>;
-    },
-  );
+  // Real token streaming from OpenAI SDK in browser.
+  const stream = await (
+    client.responses.stream as unknown as (
+      body: Record<string, unknown>,
+      options?: { signal?: AbortSignal },
+    ) => Promise<{
+      [Symbol.asyncIterator](): AsyncIterator<Record<string, unknown>>;
+      finalResponse?: () => Promise<{ id?: string; output_text?: string }>;
+    }>
+  )(payload, { signal: abortSignal });
 
-  if (!assistantText) {
+  let assistantText = "";
+  let responseId: string | undefined;
+  const streamEmitter = createBufferedChunkEmitter(onStreamChunk);
+
+  for await (const eventChunk of stream) {
+    const eventType = eventChunk.type;
+    if (eventType === "response.output_text.delta") {
+      const delta = eventChunk.delta;
+      if (typeof delta === "string") {
+        assistantText += delta;
+        streamEmitter.emit(assistantText);
+      }
+    }
+
+    if (eventType === "response.completed") {
+      const responseObject = eventChunk.response as
+        | { id?: string; output_text?: string }
+        | undefined;
+      if (!assistantText && typeof responseObject?.output_text === "string") {
+        assistantText = responseObject.output_text;
+        streamEmitter.emit(assistantText);
+      }
+      if (typeof responseObject?.id === "string") {
+        responseId = responseObject.id;
+      }
+    }
+  }
+
+  if (typeof stream.finalResponse === "function") {
+    const finalResponse = await stream.finalResponse();
+    if (!assistantText && typeof finalResponse.output_text === "string") {
+      assistantText = finalResponse.output_text;
+      streamEmitter.emit(assistantText);
+    }
+    if (typeof finalResponse.id === "string") {
+      responseId = finalResponse.id;
+    }
+  }
+
+  if (!assistantText.trim()) {
     throw new Error("Response API returned an empty message.");
   }
 
+  streamEmitter.flush(assistantText);
+
   return {
-    conversationId: mode === "conversation" ? contextId ?? response.id : response.id,
-    assistantText,
+    conversationId: mode === "conversation" ? contextId ?? responseId : responseId,
+    assistantText: assistantText.trim(),
   };
 };
 
@@ -257,12 +225,20 @@ export const sendMessageToAssistant = async ({
   imageDataUrl,
   mealContext,
   mode = "responses",
+  stream = false,
+  endMarker = STREAM_END_MARKER,
+  onStreamChunk,
+  abortSignal,
 }: {
   conversationId?: string;
   content: string;
   imageDataUrl?: string;
   mealContext?: string;
   mode?: ChatApiMode;
+  stream?: boolean;
+  endMarker?: string;
+  onStreamChunk?: (textSoFar: string) => void;
+  abortSignal?: AbortSignal;
 }) => {
   const trimmedMessage = content.trim();
   const trimmedImageDataUrl = imageDataUrl?.trim();
@@ -278,61 +254,53 @@ export const sendMessageToAssistant = async ({
     throw new Error("Attached image format is invalid.");
   }
 
-  try {
-    const urls = getFunctionBaseUrls();
-    const jobId = createJobId();
-    const payload = {
-      jobId,
-      conversationId,
-      content: trimmedMessage,
-      imageDataUrl: trimmedImageDataUrl,
-      mealContext: mealContext?.trim() || undefined,
-      mode,
-    };
-
-    const backgroundStartResponse = await fetch(urls.backgroundUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    // Netlify background functions usually return 202 immediately.
-    if (backgroundStartResponse.ok) {
-      return await pollBackgroundJob({
-        statusUrl: urls.statusUrl,
-        jobId,
+  // For non-meal mode stream UX, use direct OpenAI SDK stream (real incremental chunks).
+  if (stream) {
+    try {
+      return await sendMessageViaBrowserOpenAI({
+        conversationId,
+        content: trimmedMessage,
+        imageDataUrl: trimmedImageDataUrl,
+        mealContext,
+        mode,
+        onStreamChunk,
+        abortSignal,
       });
+    } catch (error) {
+      throw new Error(normalizeChatError(error));
     }
+  }
 
-    // Fallback to synchronous function for environments where background
-    // functions are unavailable (for example, some local setups).
-    const syncResponse = await fetch(urls.syncUrl, {
+  try {
+    const baseUrl = import.meta.env.VITE_CHAT_FUNCTION_URL?.trim() || CHAT_FUNCTION_PATH;
+    const response = await fetch(baseUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      signal: abortSignal,
       body: JSON.stringify({
         conversationId,
         content: trimmedMessage,
         imageDataUrl: trimmedImageDataUrl,
         mealContext: mealContext?.trim() || undefined,
         mode,
+        stream,
+        endMarker,
       }),
     });
-    const { data, rawBody } = await parseJsonSafely(syncResponse);
 
-    if (!syncResponse.ok) {
+    const { data, rawBody } = await parseJsonSafely(response);
+    if (!response.ok) {
       const maybeError = typeof data.error === "string" ? data.error : "";
       const bodyLower = rawBody.toLowerCase();
       if (
-        syncResponse.status === 504 ||
+        response.status === 504 ||
         bodyLower.includes("gateway timeout") ||
         bodyLower.includes("inactivity timeout")
       ) {
         throw new Error(
-          "The AI response timed out. Please retry. Background function may still be processing.",
+          "The AI response took too long and timed out. Please retry.",
         );
       }
       throw new Error(maybeError || "Chat request failed.");
@@ -344,21 +312,39 @@ export const sendMessageToAssistant = async ({
       throw new Error("Response API returned an empty message.");
     }
 
+    const normalizedText = (() => {
+      if (!stream) return assistantText;
+      const marker = endMarker.trim();
+      if (!marker) return assistantText;
+      const markerIndex = assistantText.lastIndexOf(marker);
+      if (markerIndex === -1) {
+        throw new Error("Stream ended without completion marker. Please retry.");
+      }
+      return assistantText.slice(0, markerIndex).trim();
+    })();
+
     return {
       conversationId:
         typeof data.conversationId === "string" ? data.conversationId : undefined,
-      assistantText,
+      assistantText: normalizedText,
     };
   } catch (error) {
     if (import.meta.env.DEV) {
       try {
-        return await sendMessageViaBrowserOpenAI({
+        const fallbackResult = await sendMessageViaBrowserOpenAI({
           conversationId,
           content: trimmedMessage,
           imageDataUrl: trimmedImageDataUrl,
           mealContext,
           mode,
+          onStreamChunk,
         });
+        const fallbackText = fallbackResult.assistantText.trim();
+        if (!stream) return fallbackResult;
+        return {
+          ...fallbackResult,
+          assistantText: fallbackText,
+        };
       } catch (fallbackError) {
         throw new Error(normalizeChatError(fallbackError));
       }
