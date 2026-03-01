@@ -176,6 +176,11 @@ const App = () => {
         <div className='fixed inset-0 z-100 flex items-center justify-center bg-background/95 px-4 backdrop-blur-md'>
           <Card className='w-full max-w-sm rounded-2xl border-border/60 p-5'>
             <div className='mb-4 text-center'>
+              <img
+                alt='Blaze logo'
+                className='mx-auto mb-3 h-14 w-14 rounded-xl'
+                src='/favicon.png'
+              />
               <p className='text-xl font-semibold'>{isLocked ? 'App Locked' : 'Enable App Lock'}</p>
               <p className='text-sm text-muted-foreground'>
                 {isLocked

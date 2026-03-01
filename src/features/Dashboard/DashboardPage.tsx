@@ -1307,14 +1307,12 @@ const DashboardPage = () => {
                       size="sm"
                       variant="secondary"
                     >
-                      <Sparkles className="mr-1.5 size-4" />
+                      <Sparkles className="mr-1.5 size-3" />
                       Generate meal plan
                     </Button>
                   ) : null}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  AI-generated daily meals to help complete your nutrient goals.
-                </p>
+
               </CardHeader>
               <CardContent className="space-y-3 pt-0">
                 {suggestedMealsFromLog.length === 0 ? (
