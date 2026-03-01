@@ -70,6 +70,34 @@ export const AppProviders = ({ children }: AppProvidersProps) => {
           user_id: 'sanket',
           log_date: (rawDailyLog.date as string | undefined) ?? today,
           consumed_nutrients: (rawDailyLog.consumedNutrients as Record<string, number> | undefined) ?? {},
+          suggested_meals:
+            (rawDailyLog.suggestedMeals as
+              | Array<{
+                  name: string;
+                  description: string;
+                  contains: Array<{
+                    item: string;
+                    quantity: string;
+                  }>;
+                  timetoConsume: string;
+                  nutrientSnapshot: Record<string, number>;
+                  isConsumed: boolean;
+                }>
+              | undefined) ??
+            (rawDailyLog.suggested_meals as
+              | Array<{
+                  name: string;
+                  description: string;
+                  contains: Array<{
+                    item: string;
+                    quantity: string;
+                  }>;
+                  timetoConsume: string;
+                  nutrientSnapshot: Record<string, number>;
+                  isConsumed: boolean;
+                }>
+              | undefined) ??
+            [],
           completion_score: 0,
           notes: (rawDailyLog.notes as string | null | undefined) ?? null,
           nutrient_snapshot: {},

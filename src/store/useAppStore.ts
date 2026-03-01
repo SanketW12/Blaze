@@ -3,6 +3,18 @@ import { persist } from "zustand/middleware";
 
 type NutrientAmountMap = Record<string, number>;
 
+interface SuggestedMealRecord {
+  contains: Array<{
+    item: string;
+    quantity: string;
+  }>;
+  name: string;
+  description: string;
+  timetoConsume: string;
+  nutrientSnapshot: NutrientAmountMap;
+  isConsumed: boolean;
+}
+
 interface UserProfileRecord {
   id: string;
   user_id: string;
@@ -31,6 +43,7 @@ interface DailyLogRecord {
   user_id: string;
   log_date: string;
   consumed_nutrients: NutrientAmountMap;
+  suggested_meals?: SuggestedMealRecord[];
   completion_score: number;
   notes: string | null;
   nutrient_snapshot: Record<string, unknown>;

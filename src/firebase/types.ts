@@ -1,5 +1,17 @@
 import type { NutrientAmountMap } from './nutrients';
 
+export interface SuggestedMealDoc {
+  contains: Array<{
+    item: string;
+    quantity: string;
+  }>;
+  name: string;
+  description: string;
+  timetoConsume: string;
+  nutrientSnapshot: NutrientAmountMap;
+  isConsumed: boolean;
+}
+
 export interface UserProfileDoc {
   age: number | null;
   weightKg: number | null;
@@ -19,6 +31,8 @@ export interface DailyLogDoc {
   date: string;
   consumedNutrients: NutrientAmountMap;
   consumed_nutrients?: NutrientAmountMap;
+  suggestedMeals?: SuggestedMealDoc[];
+  suggested_meals?: SuggestedMealDoc[];
   mealCount?: number;
   notes?: string;
   createdAt?: unknown;

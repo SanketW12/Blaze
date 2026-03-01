@@ -17,7 +17,13 @@ import {
   createZeroNutrientMap,
   normalizeNutrientMap
 } from './nutrients';
-import type { AddMealInput, DailyLogDoc, MealDoc, UserProfileDoc } from './types';
+import type {
+  AddMealInput,
+  DailyLogDoc,
+  MealDoc,
+  SuggestedMealDoc,
+  UserProfileDoc
+} from './types';
 
 const USER_PROFILE_REF = doc(db, 'sanket', 'profile');
 const dailyLogDocRef = (date: string) => doc(db, 'daily-log', date);
@@ -119,5 +125,37 @@ export const firebaseDataService = {
     });
 
     return mealRef.id;
+  },
+
+  async upsertSuggestedMealsForDate(
+    logDate: string,
+    suggestedMeals: SuggestedMealDoc[]
+  ) {
+    const logRef = dailyLogDocRef(logDate);
+    await runTransaction(db, async transaction => {
+      const dailySnapshot = await transaction.get(logRef);
+
+      if (dailySnapshot.exists()) {
+        transaction.set(
+          logRef,
+          {
+            suggestedMeals,
+            updatedAt: serverTimestamp()
+          },
+          { merge: true }
+        );
+        return;
+      }
+
+      transaction.set(logRef, {
+        date: logDate,
+        consumedNutrients: createZeroNutrientMap(),
+        mealCount: 0,
+        notes: '',
+        suggestedMeals,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    });
   }
 };
