@@ -171,9 +171,16 @@ const sendMessageViaBrowserOpenAI = async ({
   let assistantText = "";
   let responseId: string | undefined;
   const streamEmitter = createBufferedChunkEmitter(onStreamChunk);
+  let streamCompleted = false;
 
   for await (const eventChunk of stream) {
     const eventType = eventChunk.type;
+    if (eventType === "response.created") {
+      const responseObject = eventChunk.response as { id?: string } | undefined;
+      if (typeof responseObject?.id === "string") {
+        responseId = responseObject.id;
+      }
+    }
     if (eventType === "response.output_text.delta") {
       const delta = eventChunk.delta;
       if (typeof delta === "string") {
@@ -183,6 +190,7 @@ const sendMessageViaBrowserOpenAI = async ({
     }
 
     if (eventType === "response.completed") {
+      streamCompleted = true;
       const responseObject = eventChunk.response as
         | { id?: string; output_text?: string }
         | undefined;
@@ -208,7 +216,28 @@ const sendMessageViaBrowserOpenAI = async ({
   }
 
   if (!assistantText.trim()) {
+    if (abortSignal?.aborted) {
+      if (responseId) {
+        try {
+          await client.responses.cancel(responseId);
+        } catch {
+          // Best-effort cancellation; ignore failure.
+        }
+      }
+      throw new DOMException("Request aborted", "AbortError");
+    }
     throw new Error("Response API returned an empty message.");
+  }
+
+  if (abortSignal?.aborted && !streamCompleted) {
+    if (responseId) {
+      try {
+        await client.responses.cancel(responseId);
+      } catch {
+        // Best-effort cancellation; ignore failure.
+      }
+    }
+    throw new DOMException("Request aborted", "AbortError");
   }
 
   streamEmitter.flush(assistantText);
