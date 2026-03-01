@@ -1,7 +1,11 @@
 const MAX_MESSAGE_LENGTH = 4000;
 export type ChatApiMode = "responses" | "conversation";
 const CHAT_FUNCTION_PATH = "/.netlify/functions/chat";
+const CHAT_BACKGROUND_FUNCTION_PATH = "/.netlify/functions/chat-background";
+const CHAT_STATUS_FUNCTION_PATH = "/.netlify/functions/chat-status";
 const DEFAULT_MODEL = "gpt-4o-mini";
+const BACKGROUND_POLL_INTERVAL_MS = 1200;
+const BACKGROUND_MAX_POLL_MS = 150000;
 
 const normalizeChatError = (error: unknown) => {
   if (error instanceof Error) return error.message;
@@ -45,6 +49,114 @@ const extractAssistantText = (response: {
       .filter(Boolean) ?? [];
 
   return textParts.join("\n").trim();
+};
+
+const sleep = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const createJobId = () => {
+  if (
+    typeof globalThis.crypto !== "undefined" &&
+    typeof globalThis.crypto.randomUUID === "function"
+  ) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const parseJsonSafely = async (response: Response) => {
+  const rawBody = await response.text();
+  try {
+    return {
+      rawBody,
+      data: JSON.parse(rawBody) as Record<string, unknown>,
+    };
+  } catch {
+    return {
+      rawBody,
+      data: {} as Record<string, unknown>,
+    };
+  }
+};
+
+const getFunctionBaseUrls = () => {
+  const configuredChatFunctionUrl = import.meta.env.VITE_CHAT_FUNCTION_URL?.trim();
+  if (!configuredChatFunctionUrl) {
+    return {
+      syncUrl: CHAT_FUNCTION_PATH,
+      backgroundUrl: CHAT_BACKGROUND_FUNCTION_PATH,
+      statusUrl: CHAT_STATUS_FUNCTION_PATH,
+    };
+  }
+
+  const backgroundUrl = configuredChatFunctionUrl.replace(
+    /\/chat(?:\/)?$/,
+    "/chat-background",
+  );
+  const statusUrl = configuredChatFunctionUrl.replace(/\/chat(?:\/)?$/, "/chat-status");
+
+  return {
+    syncUrl: configuredChatFunctionUrl,
+    backgroundUrl,
+    statusUrl,
+  };
+};
+
+const pollBackgroundJob = async ({
+  statusUrl,
+  jobId,
+}: {
+  statusUrl: string;
+  jobId: string;
+}) => {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt <= BACKGROUND_MAX_POLL_MS) {
+    const statusResponse = await fetch(`${statusUrl}?jobId=${encodeURIComponent(jobId)}`, {
+      method: "GET",
+    });
+    const { data, rawBody } = await parseJsonSafely(statusResponse);
+
+    if (!statusResponse.ok) {
+      throw new Error(
+        (typeof data.error === "string" && data.error) ||
+          "Unable to fetch background job status.",
+      );
+    }
+
+    const status = typeof data.status === "string" ? data.status : "queued";
+    if (status === "completed") {
+      const assistantText =
+        typeof data.assistantText === "string" ? data.assistantText.trim() : "";
+      if (!assistantText) {
+        throw new Error("Response API returned an empty message.");
+      }
+      return {
+        assistantText,
+        conversationId:
+          typeof data.conversationId === "string" ? data.conversationId : undefined,
+      };
+    }
+
+    if (status === "failed") {
+      throw new Error(
+        (typeof data.error === "string" && data.error) ||
+          "Background chat task failed.",
+      );
+    }
+
+    if (rawBody.toLowerCase().includes("inactivity timeout")) {
+      throw new Error("Background function status polling timed out.");
+    }
+
+    await sleep(BACKGROUND_POLL_INTERVAL_MS);
+  }
+
+  throw new Error(
+    "The AI response is taking longer than expected. Please retry in a moment.",
+  );
 };
 
 const sendMessageViaBrowserOpenAI = async ({
@@ -167,8 +279,36 @@ export const sendMessageToAssistant = async ({
   }
 
   try {
-    const baseUrl = import.meta.env.VITE_CHAT_FUNCTION_URL?.trim() || CHAT_FUNCTION_PATH;
-    const response = await fetch(baseUrl, {
+    const urls = getFunctionBaseUrls();
+    const jobId = createJobId();
+    const payload = {
+      jobId,
+      conversationId,
+      content: trimmedMessage,
+      imageDataUrl: trimmedImageDataUrl,
+      mealContext: mealContext?.trim() || undefined,
+      mode,
+    };
+
+    const backgroundStartResponse = await fetch(urls.backgroundUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    // Netlify background functions usually return 202 immediately.
+    if (backgroundStartResponse.ok) {
+      return await pollBackgroundJob({
+        statusUrl: urls.statusUrl,
+        jobId,
+      });
+    }
+
+    // Fallback to synchronous function for environments where background
+    // functions are unavailable (for example, some local setups).
+    const syncResponse = await fetch(urls.syncUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -181,23 +321,33 @@ export const sendMessageToAssistant = async ({
         mode,
       }),
     });
+    const { data, rawBody } = await parseJsonSafely(syncResponse);
 
-    const data = (await response.json()) as {
-      error?: string;
-      assistantText?: string;
-      conversationId?: string;
-    };
-
-    if (!response.ok) {
-      throw new Error(data.error || "Chat request failed.");
+    if (!syncResponse.ok) {
+      const maybeError = typeof data.error === "string" ? data.error : "";
+      const bodyLower = rawBody.toLowerCase();
+      if (
+        syncResponse.status === 504 ||
+        bodyLower.includes("gateway timeout") ||
+        bodyLower.includes("inactivity timeout")
+      ) {
+        throw new Error(
+          "The AI response timed out. Please retry. Background function may still be processing.",
+        );
+      }
+      throw new Error(maybeError || "Chat request failed.");
     }
-    if (!data.assistantText?.trim()) {
+
+    const assistantText =
+      typeof data.assistantText === "string" ? data.assistantText.trim() : "";
+    if (!assistantText) {
       throw new Error("Response API returned an empty message.");
     }
 
     return {
-      conversationId: data.conversationId,
-      assistantText: data.assistantText,
+      conversationId:
+        typeof data.conversationId === "string" ? data.conversationId : undefined,
+      assistantText,
     };
   } catch (error) {
     if (import.meta.env.DEV) {
