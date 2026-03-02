@@ -37,11 +37,6 @@ import { addNutrientMaps, firebaseDataService, normalizeNutrientMap } from '@/fi
 import { NUTRIENTS_CONFIG } from '@/config';
 import { useAppStore } from '@/store';
 import { sendMessageToAssistant, STREAM_END_MARKER } from '@/features/Chat/chatservice';
-import {
-  DASHBOARD_MOCK_CONSUMED_NUTRIENTS,
-  DASHBOARD_MOCK_REQUIRED_NUTRIENTS,
-  DASHBOARD_USE_MOCK_DATA
-} from './dashboard.mock';
 
 type NutrientUnit = 'g' | 'mg' | 'mcg' | 'ml' | 'kcal';
 
@@ -193,12 +188,33 @@ interface BeforeInstallPromptEvent extends Event {
 const buildSuggestedMealsContext = ({
   nutrientKeys,
   requiredNutrients,
-  mustCompleteKeys
+  consumedNutrients,
+  mustCompleteKeys,
+  aminoAcidKeys,
+  generationMode
 }: {
   nutrientKeys: string[];
   requiredNutrients: Record<string, number>;
+  consumedNutrients: Record<string, number>;
   mustCompleteKeys: string[];
+  aminoAcidKeys: string[];
+  generationMode: 'full' | 'remaining';
 }) => {
+  const remainingNutrients = Object.fromEntries(
+    nutrientKeys.map(key => {
+      const required = Number(requiredNutrients[key] ?? 0);
+      const consumed = Number(consumedNutrients[key] ?? 0);
+      return [key, Math.max(required - consumed, 0)];
+    })
+  );
+  const remainingKeys = nutrientKeys.filter(key => Number(remainingNutrients[key] ?? 0) > 0);
+  const remainingCalories = Number(remainingNutrients.calories ?? 0);
+  const remainingTopUpMealCount = remainingCalories <= 450 ? 1 : 2;
+  const coveragePriorityRule =
+    generationMode === 'remaining'
+      ? '- Prioritize must_complete_keys first, then improve coverage for all other remaining nutrient keys without creating a full-day schedule.'
+      : '- Prioritize must_complete_keys first, then improve coverage for all other nutrient keys while distributing meals through the day.';
+
   const suggestedMealsSchema = [
     {
       name: 'string',
@@ -216,15 +232,29 @@ Output schema:
 ${JSON.stringify(suggestedMealsSchema, null, 2)}
 User required_nutrients target:
 ${JSON.stringify(requiredNutrients, null, 2)}
+Already consumed nutrients today:
+${JSON.stringify(consumedNutrients, null, 2)}
+Remaining nutrients to complete today:
+${JSON.stringify(remainingNutrients, null, 2)}
 User must_complete_keys priority:
 ${JSON.stringify(mustCompleteKeys, null, 2)}
+Amino acid keys:
+${JSON.stringify(aminoAcidKeys, null, 2)}
+Generation mode:
+${generationMode}
 Rules:
-- Return an array of suggested meals for a full day.
+- Return an array of suggested meals.
 - JSON must be parseable.
 - Each nutrientSnapshot value must be a number.
 - nutrientSnapshot must include exactly these keys (no extras, no missing): ${nutrientKeys.join(', ')}.
-- Plan should target completion of required_nutrients.
-- Prioritize must_complete_keys while distributing meals through the day.
+- Plan should target completion of remaining_nutrients across ALL nutrient keys, not just a subset.
+- Sum of all meals in this plan should reach at least 95% of each remaining must_complete_key target.
+- Sum of all meals in this plan should reach at least 80% of each remaining nutrient key target when remaining target is greater than 0.
+- ${coveragePriorityRule}
+- If generation mode is "full": return a practical full-day plan.
+- If generation mode is "remaining": do NOT return a full-day schedule; return only additional top-up meals needed for remaining_nutrients.
+- If generation mode is "remaining": focus only on these remaining nutrient keys: ${remainingKeys.join(', ') || 'none'}.
+- If generation mode is "remaining": return exactly ${remainingTopUpMealCount} top-up meal${remainingTopUpMealCount > 1 ? 's' : ''}.
 - isConsumed must be boolean.
 - Keep meal names practical and real foods.
 - description must clearly explain what the meal is and what it contains (key ingredients / preparation style) in 1-2 short lines.
@@ -278,14 +308,19 @@ Rules:
 - Each contains item must include a clear ingredient name in item and serving amount in quantity (example: "200gm", "2 slices", "350ml").`;
 };
 
+const REMAINING_NUTRIENTS_PLAN_PROMPT =
+  'Build this plan only for remaining nutrients not yet completed today. Prioritize must_complete_keys first, then fill all other remaining nutrient gaps.';
+
 const DashboardPage = () => {
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [planPrompt, setPlanPrompt] = useState('');
+  const [planGenerationMode, setPlanGenerationMode] = useState<'full' | 'remaining'>('full');
   const [isGeneratingPlan, setIsGeneratingPlan] = useState(false);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
   const [consumingMealKey, setConsumingMealKey] = useState<string | null>(null);
+  const [deletingMealKey, setDeletingMealKey] = useState<string | null>(null);
   const [generatedPlanDraft, setGeneratedPlanDraft] = useState<SuggestedMealItem[] | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false);
@@ -309,6 +344,13 @@ const DashboardPage = () => {
     () => (NUTRIENTS_CONFIG.nutrients as NutrientDefinition[]).map(item => item.key),
     []
   );
+  const aminoAcidKeysForPlan = useMemo(
+    () =>
+      (NUTRIENTS_CONFIG.nutrients as NutrientDefinition[])
+        .filter(item => item.category === 'amino_acid')
+        .map(item => item.key),
+    []
+  );
   const suggestedMealsFromLog = useMemo(
     () => (dailyLog?.suggested_meals as SuggestedMealItem[] | undefined) ?? [],
     [dailyLog?.suggested_meals]
@@ -318,6 +360,8 @@ const DashboardPage = () => {
     [replacementDraft]
   );
   const hasSavedSuggestedMeals = suggestedMealsFromLog.length > 0;
+  const areAllSuggestedMealsConsumed =
+    hasSavedSuggestedMeals && suggestedMealsFromLog.every(meal => meal.isConsumed);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (event: Event) => {
@@ -338,18 +382,14 @@ const DashboardPage = () => {
     };
   }, []);
 
+
+  console.log('dailyLog', dailyLog);
   const consumedNutrients = useMemo(
-    () =>
-      DASHBOARD_USE_MOCK_DATA
-        ? DASHBOARD_MOCK_CONSUMED_NUTRIENTS
-        : (dailyLog?.consumed_nutrients ?? {}),
+    () => dailyLog?.consumed_nutrients ?? {},
     [dailyLog?.consumed_nutrients]
   );
   const profileRequirements = useMemo(
-    () =>
-      DASHBOARD_USE_MOCK_DATA
-        ? DASHBOARD_MOCK_REQUIRED_NUTRIENTS
-        : (userProfile?.required_nutrients ?? {}),
+    () => userProfile?.required_nutrients ?? {},
     [userProfile?.required_nutrients]
   );
 
@@ -619,10 +659,10 @@ const DashboardPage = () => {
         firebaseDataService.getDailyLog(today)
       ]);
 
-      const dailyLogData = todayLog ?? (await firebaseDataService.getLatestDailyLog());
-      const activeLogDate =
-        (dailyLogData as Record<string, unknown> | null)?.date?.toString() ?? today;
-      const mealsForActiveDate = await firebaseDataService.listMealsForDate(activeLogDate);
+      const dailyLogData = todayLog;
+      const mealsForActiveDate = dailyLogData
+        ? await firebaseDataService.listMealsForDate(today)
+        : [];
 
       if (profile) {
         const rawData = profile as unknown as Record<string, unknown>;
@@ -717,18 +757,25 @@ const DashboardPage = () => {
 
     try {
       const extraInstructions = planPrompt.trim();
+      const baseContent =
+        planGenerationMode === 'remaining'
+          ? 'Generate only additional meals for remaining nutrients today, not a full-day plan.'
+          : 'Generate a practical meal plan to complete my nutrient goals for today.';
       const content = extraInstructions
-        ? `Generate a practical meal plan to complete my nutrient goals. Extra preference: ${extraInstructions}`
-        : 'Generate a practical meal plan to complete my nutrient goals for today.';
+        ? `${baseContent} Extra preference: ${extraInstructions}`
+        : baseContent;
 
       const { assistantText } = await sendMessageToAssistant({
         content,
         mealContext: buildSuggestedMealsContext({
           nutrientKeys: nutrientKeysForPlan,
           requiredNutrients: profileRequirements,
-          mustCompleteKeys
+          consumedNutrients,
+          mustCompleteKeys,
+          aminoAcidKeys: aminoAcidKeysForPlan,
+          generationMode: planGenerationMode
         }),
-        mode: 'conversation',
+        mode: 'responses',
         stream: true,
         endMarker: STREAM_END_MARKER
       });
@@ -737,7 +784,19 @@ const DashboardPage = () => {
       if (!parsedPlan) {
         throw new Error('AI returned an invalid plan format. Please try again.');
       }
-      setGeneratedPlanDraft(parsedPlan);
+      const remainingCalories = Math.max(
+        Number(profileRequirements.calories ?? 0) - Number(consumedNutrients.calories ?? 0),
+        0
+      );
+      const remainingTopUpMealCount = remainingCalories <= 450 ? 1 : 2;
+      const normalizedPlan =
+        planGenerationMode === 'remaining'
+          ? parsedPlan.slice(0, remainingTopUpMealCount).map((meal, index) => ({
+            ...meal,
+            timetoConsume: index === 0 ? 'Next meal' : 'Later today'
+          }))
+          : parsedPlan;
+      setGeneratedPlanDraft(normalizedPlan);
     } catch (error) {
       setPlanError(error instanceof Error ? error.message : 'Failed to generate meal plan.');
     } finally {
@@ -783,6 +842,7 @@ const DashboardPage = () => {
       setIsPlanModalOpen(false);
       setGeneratedPlanDraft(null);
       setPlanPrompt('');
+      setPlanGenerationMode('full');
     } catch (error) {
       setPlanError(error instanceof Error ? error.message : 'Failed to save meal plan.');
     } finally {
@@ -860,6 +920,49 @@ const DashboardPage = () => {
       setPlanError(error instanceof Error ? error.message : 'Failed to mark suggested meal as consumed.');
     } finally {
       setConsumingMealKey(null);
+    }
+  };
+
+  const handleDeleteSuggestedMeal = async (meal: SuggestedMealItem, index: number) => {
+    if (meal.isConsumed) return;
+    const mealKey = `${meal.name}-${meal.timetoConsume}-${index}`;
+    setPlanError(null);
+    setDeletingMealKey(mealKey);
+    try {
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(
+        2,
+        '0'
+      )}-${String(now.getDate()).padStart(2, '0')}`;
+      const activeDate = dailyLog?.log_date ?? today;
+
+      const nextSuggestedMeals = suggestedMealsFromLog.filter((_, itemIndex) => itemIndex !== index);
+      await firebaseDataService.upsertSuggestedMealsForDate(activeDate, nextSuggestedMeals);
+
+      if (dailyLog) {
+        setDailyLog({
+          ...dailyLog,
+          suggested_meals: nextSuggestedMeals,
+          updated_at: now.toISOString()
+        });
+      } else {
+        setDailyLog({
+          id: activeDate,
+          user_id: 'sanket',
+          log_date: activeDate,
+          consumed_nutrients: {},
+          suggested_meals: nextSuggestedMeals,
+          completion_score: 0,
+          notes: null,
+          nutrient_snapshot: {},
+          created_at: now.toISOString(),
+          updated_at: now.toISOString()
+        });
+      }
+    } catch (error) {
+      setPlanError(error instanceof Error ? error.message : 'Failed to delete suggested meal.');
+    } finally {
+      setDeletingMealKey(null);
     }
   };
 
@@ -1302,6 +1405,8 @@ const DashboardPage = () => {
                       onClick={() => {
                         setPlanError(null);
                         setGeneratedPlanDraft(null);
+                        setPlanPrompt('');
+                        setPlanGenerationMode('full');
                         setIsPlanModalOpen(true);
                       }}
                       size="sm"
@@ -1309,6 +1414,21 @@ const DashboardPage = () => {
                     >
                       <Sparkles className="mr-1.5 size-3" />
                       Generate meal plan
+                    </Button>
+                  ) : areAllSuggestedMealsConsumed ? (
+                    <Button
+                      onClick={() => {
+                        setPlanError(null);
+                        setGeneratedPlanDraft(null);
+                        setPlanPrompt(REMAINING_NUTRIENTS_PLAN_PROMPT);
+                        setPlanGenerationMode('remaining');
+                        setIsPlanModalOpen(true);
+                      }}
+                      size="sm"
+                      variant="secondary"
+                    >
+                      <Sparkles className="mr-1.5 size-3" />
+                      Generate for remaining
                     </Button>
                   ) : null}
                 </div>
@@ -1348,7 +1468,11 @@ const DashboardPage = () => {
                               >
                                 <Checkbox
                                   checked={meal.isConsumed}
-                                  disabled={meal.isConsumed || consumingMealKey === mealKey}
+                                  disabled={
+                                    meal.isConsumed ||
+                                    consumingMealKey === mealKey ||
+                                    deletingMealKey === mealKey
+                                  }
                                   onCheckedChange={checked => {
                                     if (checked === true) {
                                       void handleConsumeSuggestedMeal(meal, index);
@@ -1398,14 +1522,28 @@ const DashboardPage = () => {
                                 )}
                               </div>
                               {!meal.isConsumed ? (
-                                <Button
-                                  onClick={() => openReplaceMealModal(index)}
-                                  size="xs"
-                                  type="button"
-                                  variant="outline"
-                                >
-                                  Replace
-                                </Button>
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    disabled={deletingMealKey === mealKey || consumingMealKey === mealKey}
+                                    onClick={() => openReplaceMealModal(index)}
+                                    size="xs"
+                                    type="button"
+                                    variant="outline"
+                                  >
+                                    Replace
+                                  </Button>
+                                  <Button
+                                    disabled={deletingMealKey === mealKey || consumingMealKey === mealKey}
+                                    onClick={() => {
+                                      void handleDeleteSuggestedMeal(meal, index);
+                                    }}
+                                    size="xs"
+                                    type="button"
+                                    variant="destructive"
+                                  >
+                                    {deletingMealKey === mealKey ? 'Deleting...' : 'Delete'}
+                                  </Button>
+                                </div>
                               ) : null}
 
                             </div>
@@ -1511,6 +1649,7 @@ const DashboardPage = () => {
                 if (!open) {
                   setPlanError(null);
                   setGeneratedPlanDraft(null);
+                  setPlanGenerationMode('full');
                 }
               }}
               open={isPlanModalOpen}

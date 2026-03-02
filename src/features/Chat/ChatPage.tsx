@@ -29,6 +29,7 @@ import {
   STREAM_END_MARKER
 } from './chatservice';
 import mealModeResponseSchema from '@/config/meal-mode-response-schema.json';
+import { NUTRIENTS_CONFIG } from '@/config/nutrients';
 import { cn } from '@/lib/utils';
 
 interface MealDraft {
@@ -52,18 +53,88 @@ interface MealModeAiResponse {
   created_at: string;
 }
 
+type NutrientValueUnit = 'g' | 'mg' | 'mcg' | 'ml' | 'kcal';
+
 const REQUIRED_MEAL_NUTRIENT_KEYS = Object.keys(mealModeResponseSchema.nutrient_snapshot);
+const MEAL_MODE_NUTRIENT_UNITS = Object.fromEntries(
+  REQUIRED_MEAL_NUTRIENT_KEYS.map(key => [
+    key,
+    NUTRIENTS_CONFIG.nutrients.find(nutrient => nutrient.key === key)?.unit ?? 'mg'
+  ])
+) as Record<string, NutrientValueUnit>;
+const MEAL_MODE_AMINO_ACID_KEYS = NUTRIENTS_CONFIG.nutrients
+  .filter(nutrient => nutrient.category === 'amino_acid')
+  .map(nutrient => nutrient.key);
+const AMINO_MG_PER_GRAM_PROTEIN: Partial<Record<string, number>> = {
+  histidine: 18,
+  isoleucine: 36,
+  leucine: 69,
+  lysine: 58,
+  methionine: 27,
+  phenylalanine: 45,
+  threonine: 35,
+  tryptophan: 11,
+  valine: 45
+};
+
+const convertBetweenMassUnits = (
+  value: number,
+  fromUnit: Extract<NutrientValueUnit, 'g' | 'mg' | 'mcg'>,
+  toUnit: Extract<NutrientValueUnit, 'g' | 'mg' | 'mcg'>
+) => {
+  if (fromUnit === toUnit) return value;
+  const inMg =
+    fromUnit === 'g' ? value * 1000 : fromUnit === 'mcg' ? value / 1000 : value;
+  if (toUnit === 'g') return inMg / 1000;
+  if (toUnit === 'mcg') return inMg * 1000;
+  return inMg;
+};
+
+const parseNutrientValue = (rawValue: unknown, expectedUnit: NutrientValueUnit): number => {
+  if (typeof rawValue === 'number') {
+    return Number.isFinite(rawValue) ? rawValue : 0;
+  }
+
+  if (typeof rawValue !== 'string') return 0;
+  const normalized = rawValue.trim().toLowerCase().replaceAll(',', '');
+  if (!normalized) return 0;
+
+  const matched = normalized.match(/^(-?\d+(?:\.\d+)?)\s*(kcal|g|mg|mcg|ml)?$/i);
+  if (!matched) return 0;
+  const numeric = Number(matched[1]);
+  if (!Number.isFinite(numeric)) return 0;
+  const providedUnit = (matched[2]?.toLowerCase() as NutrientValueUnit | undefined) ?? expectedUnit;
+
+  if (providedUnit === expectedUnit) return numeric;
+  if (
+    (providedUnit === 'g' || providedUnit === 'mg' || providedUnit === 'mcg') &&
+    (expectedUnit === 'g' || expectedUnit === 'mg' || expectedUnit === 'mcg')
+  ) {
+    return convertBetweenMassUnits(numeric, providedUnit, expectedUnit);
+  }
+
+  // Do not attempt cross-domain conversions (e.g. kcal -> mg).
+  return numeric;
+};
 
 const MEAL_MODE_CONTEXT = `You are in MEAL MODE.
 Return ONLY valid JSON. No markdown. No prose.
 Output schema (MealModeAiResponse):
 ${JSON.stringify(mealModeResponseSchema, null, 2)}
+Nutrient units by key (must be followed exactly):
+${JSON.stringify(MEAL_MODE_NUTRIENT_UNITS, null, 2)}
 Rules:
 - JSON must be parseable.
 - nutrient_snapshot values must be numbers.
 - nutrient_snapshot must include exactly these keys (no extras, no missing): ${REQUIRED_MEAL_NUTRIENT_KEYS.join(
   ', '
 )}.
+- Do not skip any nutrient key. Every key above must always be present in nutrient_snapshot.
+- If exact nutrient data is unknown, provide a best-effort numeric estimate for that key instead of omitting it.
+- Never return null, undefined, empty strings, or non-numeric placeholders for nutrient_snapshot values.
+- Use exact units from Nutrient units by key. Do not change unit scale.
+- Amino acid keys must be in mg (not g): ${MEAL_MODE_AMINO_ACID_KEYS.join(', ')}.
+- Example: if leucine is 2.3g, return 2300 (mg) in nutrient_snapshot.leucine.
 - source must be one of: text, image, manual.
 - Focus only on meal nutrition responses.`;
 
@@ -215,8 +286,23 @@ ${JSON.stringify(safeProfileContext, null, 2)}`;
       const hasOnlyAllowedKeys = snapshotKeys.every(key => REQUIRED_MEAL_NUTRIENT_KEYS.includes(key));
       if (!hasAllRequiredKeys || !hasOnlyAllowedKeys) return null;
       const nutrientSnapshot = Object.fromEntries(
-        REQUIRED_MEAL_NUTRIENT_KEYS.map(key => [key, Number(snapshot[key]) || 0])
+        REQUIRED_MEAL_NUTRIENT_KEYS.map(key => [
+          key,
+          parseNutrientValue(snapshot[key], MEAL_MODE_NUTRIENT_UNITS[key] ?? 'mg')
+        ])
+      ) as Record<string, number>;
+      const hasAnyAminoValue = MEAL_MODE_AMINO_ACID_KEYS.some(
+        key => Number(nutrientSnapshot[key] ?? 0) > 0
       );
+      const proteinInGrams = Number(nutrientSnapshot.protein ?? 0);
+      if (!hasAnyAminoValue && proteinInGrams > 0) {
+        // Fallback estimate using typical essential amino acid profile per gram protein.
+        MEAL_MODE_AMINO_ACID_KEYS.forEach(key => {
+          const ratio = AMINO_MG_PER_GRAM_PROTEIN[key];
+          if (!ratio) return;
+          nutrientSnapshot[key] = Math.max(0, Math.round(proteinInGrams * ratio));
+        });
+      }
       const parsed = {
         id: typeof parsedRaw.id === 'string' ? parsedRaw.id : '',
         user_id: typeof parsedRaw.user_id === 'string' ? parsedRaw.user_id : 'sanket',

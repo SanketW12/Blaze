@@ -32,10 +32,10 @@ export const AppProviders = ({ children }: AppProvidersProps) => {
         firebaseDataService.getDailyLog(today)
       ]);
 
-      const dailyLog = todayLog ?? (await firebaseDataService.getLatestDailyLog());
-      const activeLogDate =
-        (dailyLog as Record<string, unknown> | null)?.date?.toString() ?? today;
-      const mealsForActiveDate = await firebaseDataService.listMealsForDate(activeLogDate);
+      const dailyLog = todayLog;
+      const mealsForActiveDate = dailyLog
+        ? await firebaseDataService.listMealsForDate(today)
+        : [];
 
       if (cancelled) return;
 
@@ -73,29 +73,29 @@ export const AppProviders = ({ children }: AppProvidersProps) => {
           suggested_meals:
             (rawDailyLog.suggestedMeals as
               | Array<{
-                  name: string;
-                  description: string;
-                  contains: Array<{
-                    item: string;
-                    quantity: string;
-                  }>;
-                  timetoConsume: string;
-                  nutrientSnapshot: Record<string, number>;
-                  isConsumed: boolean;
-                }>
+                name: string;
+                description: string;
+                contains: Array<{
+                  item: string;
+                  quantity: string;
+                }>;
+                timetoConsume: string;
+                nutrientSnapshot: Record<string, number>;
+                isConsumed: boolean;
+              }>
               | undefined) ??
             (rawDailyLog.suggested_meals as
               | Array<{
-                  name: string;
-                  description: string;
-                  contains: Array<{
-                    item: string;
-                    quantity: string;
-                  }>;
-                  timetoConsume: string;
-                  nutrientSnapshot: Record<string, number>;
-                  isConsumed: boolean;
-                }>
+                name: string;
+                description: string;
+                contains: Array<{
+                  item: string;
+                  quantity: string;
+                }>;
+                timetoConsume: string;
+                nutrientSnapshot: Record<string, number>;
+                isConsumed: boolean;
+              }>
               | undefined) ??
             [],
           completion_score: 0,
