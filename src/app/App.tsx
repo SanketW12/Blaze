@@ -1,5 +1,7 @@
-import { DashboardPage } from '@/features/Dashboard';
+import { NutritionPage } from '@/features/Dashboard';
 import { ChatPage } from '@/features/Chat';
+import { HomePage } from '@/features/Home';
+import { HomeHeader } from '@/features/Home/components/HomeHeader';
 import FooterNavbar from './FooterNavbar';
 import type { FooterTab } from './FooterNavbar';
 import { useEffect, useState } from 'react';
@@ -35,6 +37,7 @@ const createRandomBuffer = (length = 32) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState<FooterTab>('home');
+  const [homeView, setHomeView] = useState<'home' | 'nutrition'>('home');
   const [isLocked, setIsLocked] = useState(false);
   const [hasPassedLockGate, setHasPassedLockGate] = useState(false);
   const [biometricCredentialId, setBiometricCredentialId] = useState<string | null>(null);
@@ -52,7 +55,41 @@ const App = () => {
 
   const renderActiveScreen = () => {
     if (activeTab === 'chat') return <ChatPage />;
-    return <DashboardPage />;
+    if (activeTab === 'home') {
+      if (homeView === 'nutrition') {
+        return <NutritionPage onBackToHome={() => setHomeView('home')} />;
+      }
+      return <HomePage onOpenNutrition={() => setHomeView('nutrition')} />;
+    }
+    if (activeTab === 'history') {
+      return (
+        <main className='min-h-screen bg-card text-foreground pb-24'>
+          <section className='mx-auto w-full max-w-lg p-4'>
+            <Card className='bg-muted/25 shadow-none'>
+              <div className='p-4'>
+                <p className='text-lg font-semibold'>History</p>
+                <p className='text-sm text-muted-foreground'>History page coming soon.</p>
+              </div>
+            </Card>
+          </section>
+        </main>
+      );
+    }
+    if (activeTab === 'settings') {
+      return (
+        <main className='min-h-screen bg-card text-foreground pb-24'>
+          <section className='mx-auto w-full max-w-lg p-4'>
+            <Card className='bg-muted/25 shadow-none'>
+              <div className='p-4'>
+                <p className='text-lg font-semibold'>Settings</p>
+                <p className='text-sm text-muted-foreground'>Settings page coming soon.</p>
+              </div>
+            </Card>
+          </section>
+        </main>
+      );
+    }
+    return null;
   };
 
   useEffect(() => {
@@ -164,9 +201,21 @@ const App = () => {
   return (
     <>
       {hasPassedLockGate && !isLocked ? (
-        <Card className='border-none shadow-none bg-card rounded-none'>
-          {renderActiveScreen()}
-          <FooterNavbar onValueChange={setActiveTab} value={activeTab} />
+        <Card className='border-none  shadow-none bg-card rounded-none'>
+          <div className='mx-auto w-full max-w-lg p-4 space-y-5 min-h-screen '>
+
+
+
+            {
+              activeTab === 'home' && (
+                <HomeHeader />
+              )
+            }
+
+            {renderActiveScreen()}
+            <FooterNavbar onValueChange={setActiveTab} value={activeTab} />
+          </div>
+
         </Card>
       ) : null}
 

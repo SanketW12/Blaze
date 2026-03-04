@@ -146,7 +146,7 @@ export const AppProviders = ({ children }: AppProvidersProps) => {
       <ToastProvider>
         <QueryClientProvider client={queryClient}>
           {children}
-          <ReactQueryDevtools initialIsOpen={false} />
+
         </QueryClientProvider>
       </ToastProvider>
     </ThemeProvider>
