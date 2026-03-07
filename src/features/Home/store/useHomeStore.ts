@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type HomeMenuKey = "nutrition" | "learning" | "skills";
+export type HomeMenuKey = "nutrition" | "learning" | "skills" | "communication";
 
 interface HomeMenuProgress {
   progress: number;
@@ -9,6 +9,7 @@ interface HomeMenuProgress {
 interface HomeStoreState {
   menuProgress: Record<HomeMenuKey, HomeMenuProgress>;
   setMenuProgress: (menu: HomeMenuKey, payload: HomeMenuProgress) => void;
+  setCommunicationProgress: (progress: number) => void;
   setNutritionCaloriesProgress: (
     consumedCalories: number,
     targetCalories: number,
@@ -23,9 +24,10 @@ const clampPercent = (value: number) => {
 
 export const useHomeStore = create<HomeStoreState>((set) => ({
   menuProgress: {
-    nutrition: { progress: 0 },
-    learning: { progress: 0 },
-    skills: { progress: 0 },
+    communication: { progress: 1 },
+    learning: { progress: 1 },
+    skills: { progress: 1 },
+    nutrition: { progress: 1 },
   },
   setMenuProgress: (menu, payload) =>
     set((state) => ({
@@ -34,6 +36,15 @@ export const useHomeStore = create<HomeStoreState>((set) => ({
         [menu]: {
           ...payload,
           progress: clampPercent(payload.progress),
+        },
+      },
+    })),
+  setCommunicationProgress: (progress) =>
+    set((state) => ({
+      menuProgress: {
+        ...state.menuProgress,
+        communication: {
+          progress: clampPercent(progress),
         },
       },
     })),

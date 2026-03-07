@@ -1,6 +1,7 @@
 import { NutritionPage } from '@/features/Dashboard';
 import { ChatPage } from '@/features/Chat';
 import { HomePage } from '@/features/Home';
+import { CommunicationPage } from '@/features/Communication';
 import { HomeHeader } from '@/features/Home/components/HomeHeader';
 import FooterNavbar from './FooterNavbar';
 import type { FooterTab } from './FooterNavbar';
@@ -37,7 +38,7 @@ const createRandomBuffer = (length = 32) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState<FooterTab>('home');
-  const [homeView, setHomeView] = useState<'home' | 'nutrition'>('home');
+  const [homeView, setHomeView] = useState<'home' | 'nutrition' | 'communication'>('home');
   const [isLocked, setIsLocked] = useState(false);
   const [hasPassedLockGate, setHasPassedLockGate] = useState(false);
   const [biometricCredentialId, setBiometricCredentialId] = useState<string | null>(null);
@@ -59,7 +60,15 @@ const App = () => {
       if (homeView === 'nutrition') {
         return <NutritionPage onBackToHome={() => setHomeView('home')} />;
       }
-      return <HomePage onOpenNutrition={() => setHomeView('nutrition')} />;
+      if (homeView === 'communication') {
+        return <CommunicationPage onBackToHome={() => setHomeView('home')} />;
+      }
+      return (
+        <HomePage
+          onOpenCommunication={() => setHomeView('communication')}
+          onOpenNutrition={() => setHomeView('nutrition')}
+        />
+      );
     }
     if (activeTab === 'history') {
       return (
