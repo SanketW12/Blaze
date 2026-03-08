@@ -132,11 +132,11 @@ const CommunicationPage = ({ onBackToHome }: CommunicationPageProps) => {
               <Button
                 className=" z-40 rounded-full shadow-md"
                 onClick={onBackToHome}
-                size="icon-xs"
+                size="icon"
                 type="button"
                 variant="outline"
               >
-                <ArrowLeft className="size-3" />
+                <ArrowLeft className="size-4" />
               </Button>
             ) : null}
             <CommunicationSummaryCard

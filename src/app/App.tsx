@@ -2,6 +2,7 @@ import { NutritionPage } from '@/features/Dashboard';
 import { ChatPage } from '@/features/Chat';
 import { HomePage } from '@/features/Home';
 import { CommunicationPage } from '@/features/Communication';
+import { DisciplinePage } from '@/features/Discipline';
 import { HomeHeader } from '@/features/Home/components/HomeHeader';
 import FooterNavbar from './FooterNavbar';
 import type { FooterTab } from './FooterNavbar';
@@ -38,7 +39,7 @@ const createRandomBuffer = (length = 32) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState<FooterTab>('home');
-  const [homeView, setHomeView] = useState<'home' | 'nutrition' | 'communication'>('home');
+  const [homeView, setHomeView] = useState<'home' | 'nutrition' | 'communication' | 'discipline'>('home');
   const [isLocked, setIsLocked] = useState(false);
   const [hasPassedLockGate, setHasPassedLockGate] = useState(false);
   const [biometricCredentialId, setBiometricCredentialId] = useState<string | null>(null);
@@ -63,9 +64,13 @@ const App = () => {
       if (homeView === 'communication') {
         return <CommunicationPage onBackToHome={() => setHomeView('home')} />;
       }
+      if (homeView === 'discipline') {
+        return <DisciplinePage onBackToHome={() => setHomeView('home')} />;
+      }
       return (
         <HomePage
           onOpenCommunication={() => setHomeView('communication')}
+          onOpenDiscipline={() => setHomeView('discipline')}
           onOpenNutrition={() => setHomeView('nutrition')}
         />
       );

@@ -1,4 +1,4 @@
-import { Bell, Download } from 'lucide-react';
+import { ArrowLeft, Bell, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -13,16 +13,29 @@ interface DashboardHeaderProps {
   profileInfoRows: Array<{ label: string; value: string }>;
   canInstallApp: boolean;
   onInstallClick: () => void;
+  onBack?: () => void;
 }
 
 export const DashboardHeader = ({
   profileName,
   profileInfoRows,
   canInstallApp,
-  onInstallClick
+  onInstallClick,
+  onBack
 }: DashboardHeaderProps) => (
   <div className="flex items-center justify-between ">
     <div>
+      {onBack ? (
+        <Button
+          className="z-40 rounded-full shadow-md mb-2"
+          onClick={onBack}
+          size="icon"
+          type="button"
+          variant="outline"
+        >
+          <ArrowLeft className="size-4" />
+        </Button>
+      ) : null}
       <p className="text-sm text-muted-foreground">Hi,</p>
       <h1 className="text-2xl font-semibold">Sanket</h1>
     </div>

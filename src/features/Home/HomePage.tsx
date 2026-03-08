@@ -1,15 +1,21 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRight, Speech, Sprout } from 'lucide-react';
 import { Card, CardContent, } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useAppStore } from '@/store';
+import { CommunicationStreakCard } from '@/features/Communication/components/CommunicationStreakCard';
 import { communicationDataService } from '@/features/Communication/services/communicationDataService';
+import { DISCIPLINE_STREAK_REQUIRED_TAPS } from './constants/home';
+import { disciplineStreakService } from './services/disciplineStreakService';
 import { useHomeStore } from './store';
+import type { DisciplineStreakState } from './types/disciplineStreak';
+import { buildEmptyDisciplineStreakState } from './utils/disciplineStreak';
 
 interface HomePageProps {
   onOpenNutrition?: () => void;
   onOpenCommunication?: () => void;
+  onOpenDiscipline?: () => void;
   onOpenSkills?: () => void;
 }
 
@@ -23,13 +29,25 @@ interface NavigationMenuProps {
   progress: number;
 }
 
-const HomePage = ({ onOpenNutrition, onOpenCommunication, onOpenSkills: _onOpenSkills }: HomePageProps) => {
+const HomePage = ({
+  onOpenNutrition,
+  onOpenCommunication,
+  onOpenDiscipline,
+  onOpenSkills: _onOpenSkills
+}: HomePageProps) => {
   const dailyLog = useAppStore(state => state.dailyLog);
   const userProfile = useAppStore(state => state.userProfile);
   const communicationProgress = useHomeStore(state => state.menuProgress.communication);
   const nutritionProgress = useHomeStore(state => state.menuProgress.nutrition);
   const setCommunicationProgress = useHomeStore(state => state.setCommunicationProgress);
   const setNutritionCaloriesProgress = useHomeStore(state => state.setNutritionCaloriesProgress);
+  const [disciplineStreak, setDisciplineStreak] = useState<DisciplineStreakState>(
+    buildEmptyDisciplineStreakState()
+  );
+  const [isUpdatingDisciplineStreak, setIsUpdatingDisciplineStreak] = useState(false);
+  const [disciplineCardClickCount, setDisciplineCardClickCount] = useState(0);
+  const [disciplineTapCount, setDisciplineTapCount] = useState(0);
+  const disciplineTapResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const consumedCalories = Number(dailyLog?.consumed_nutrients?.calories ?? 0);
@@ -40,23 +58,77 @@ const HomePage = ({ onOpenNutrition, onOpenCommunication, onOpenSkills: _onOpenS
   useEffect(() => {
     let isActive = true;
 
-    const loadCommunicationProgress = async () => {
+    const loadHomeProgress = async () => {
       try {
-        const communicationLog = await communicationDataService.getTodayCommunicationLog();
+        const [communicationLog, manualDisciplineStreak] = await Promise.all([
+          communicationDataService.getTodayCommunicationLog(),
+          disciplineStreakService.getDisciplineStreak()
+        ]);
         if (!isActive) return;
+
         setCommunicationProgress(communicationLog?.overallProgress ?? 1);
+        setDisciplineStreak(manualDisciplineStreak);
       } catch {
         if (!isActive) return;
         setCommunicationProgress(1);
+        setDisciplineStreak(buildEmptyDisciplineStreakState());
       }
     };
 
-    void loadCommunicationProgress();
+    void loadHomeProgress();
 
     return () => {
       isActive = false;
     };
   }, [setCommunicationProgress]);
+
+  useEffect(() => () => {
+    if (disciplineTapResetTimeoutRef.current) {
+      clearTimeout(disciplineTapResetTimeoutRef.current);
+    }
+  }, []);
+
+  const handleTodayDisciplineTap = useCallback(async () => {
+    const isTodayCompleted = disciplineStreak.weekDays.some(day => day.isToday && day.active);
+
+    if (isTodayCompleted || isUpdatingDisciplineStreak) {
+      return;
+    }
+
+    if (disciplineTapResetTimeoutRef.current) {
+      clearTimeout(disciplineTapResetTimeoutRef.current);
+    }
+
+    const nextTapCount = disciplineTapCount + 1;
+
+    if (nextTapCount < DISCIPLINE_STREAK_REQUIRED_TAPS) {
+      setDisciplineTapCount(nextTapCount);
+      disciplineTapResetTimeoutRef.current = setTimeout(() => {
+        setDisciplineTapCount(0);
+      }, 1500);
+      return;
+    }
+
+    try {
+      setIsUpdatingDisciplineStreak(true);
+      setDisciplineTapCount(0);
+      const nextStreak = await disciplineStreakService.completeToday();
+      setDisciplineStreak(nextStreak);
+    } finally {
+      setIsUpdatingDisciplineStreak(false);
+    }
+  }, [disciplineStreak.weekDays, disciplineTapCount, isUpdatingDisciplineStreak]);
+
+  const handleDisciplineCardClick = useCallback(() => {
+    const nextCount = disciplineCardClickCount + 1;
+    if (nextCount >= 5) {
+      setDisciplineCardClickCount(0);
+      onOpenDiscipline?.();
+      return;
+    }
+
+    setDisciplineCardClickCount(nextCount);
+  }, [disciplineCardClickCount, onOpenDiscipline]);
 
   const navigationMenu: NavigationMenuProps[] = useMemo(
     () => [
@@ -85,6 +157,22 @@ const HomePage = ({ onOpenNutrition, onOpenCommunication, onOpenSkills: _onOpenS
   return (
     <main className=" bg-card text-foreground pb-24">
       <section className="mx-auto w-full max-w-lg  space-y-4">
+        <CommunicationStreakCard
+          currentStreak={disciplineStreak.currentStreakDays}
+          longestStreak={disciplineStreak.longestStreakDays}
+          subtitle="Stay consistent across your daily practice"
+          title="Discipline Streak"
+          onCurrentStreakClick={handleDisciplineCardClick}
+          todayTapProgress={{
+            current: disciplineTapCount,
+            required: DISCIPLINE_STREAK_REQUIRED_TAPS,
+            completed: disciplineStreak.weekDays.some(day => day.isToday && day.active),
+            isSaving: isUpdatingDisciplineStreak,
+            onClick: handleTodayDisciplineTap
+          }}
+          totalPracticeDays={disciplineStreak.totalQualifiedDays}
+          weekDays={disciplineStreak.weekDays}
+        />
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">
             Today&apos;s Progress
