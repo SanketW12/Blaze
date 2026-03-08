@@ -307,6 +307,7 @@ const CommunicationPage = ({ onBackToHome }: CommunicationPageProps) => {
                 >
                   {section.key !== 'tongueTwisters' &&
                     section.key !== 'thoughtStructuring' &&
+                    section.key !== 'thinkingInEnglish' &&
                     section.key !== 'speechClarityDrill' &&
                     !log?.aiGeneratedExercises[section.key] ? (
                     <Button

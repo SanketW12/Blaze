@@ -307,6 +307,12 @@ const DISCIPLINE_TIMELINE: DisciplineTimelinePhase[] = [
   }
 ];
 
+const getDayRangeBounds = (dayRange: string) => {
+  const match = dayRange.match(/Day\s+(\d+)-(\d+)/i);
+  if (!match) return null;
+  return { start: Number(match[1]), end: Number(match[2]) };
+};
+
 const DisciplinePage = ({ onBackToHome }: DisciplinePageProps) => {
 
   const [streak, setStreak] = useState<DisciplineStreakState>(buildEmptyDisciplineStreakState());
@@ -441,73 +447,86 @@ const DisciplinePage = ({ onBackToHome }: DisciplinePageProps) => {
                 </div>
 
                 <div className="space-y-0">
-                  {DISCIPLINE_TIMELINE.map((phase, index) => (
-                    <div className="relative pl-6 pb-5" key={phase.dayRange}>
-                      {index < DISCIPLINE_TIMELINE.length - 1 ? (
-                        <span className="bg-border/70 absolute top-6 left-[7px] h-[calc(100%-8px)] w-px" />
-                      ) : null}
-                      <span className="bg-primary absolute top-1.5 left-0 size-4 rounded-full border-2 border-background" />
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-sm font-semibold">
-                            {phase.dayRange} - {phase.title}
-                          </p>
-                          <Button
-                            aria-label={`Open help for ${phase.dayRange}`}
-                            className="size-6 rounded-full p-0"
-                            onClick={() => {
-                              setSelectedTimelinePhase(phase);
-                            }}
-                            size="icon"
-                            type="button"
-                            variant="ghost"
-                          >
-                            <Info className="size-3" />
-                          </Button>
-                          <Badge className="text-[10px]" variant="secondary">
-                            Difficulty: {phase.difficulty}
-                          </Badge>
-                        </div>
+                  {DISCIPLINE_TIMELINE.map((phase, index) => {
+                    const bounds = getDayRangeBounds(phase.dayRange);
+                    const isOngoing = bounds
+                      ? streak.currentStreakDays >= bounds.start && streak.currentStreakDays <= bounds.end
+                      : false;
+                    const isLastPastMax =
+                      index === DISCIPLINE_TIMELINE.length - 1 && streak.currentStreakDays > 90;
+                    const isActivePhase = isOngoing || isLastPastMax;
 
-                        <div className="space-y-1">
-                          <p className="text-muted-foreground text-xs font-semibold uppercase">
-                            What happens
-                          </p>
-                          <ul className="text-muted-foreground space-y-1 text-sm">
-                            {phase.whatHappens.map(point => (
-                              <li key={point}>- {point}</li>
-                            ))}
-                          </ul>
-                        </div>
+                    return (
+                      <div className="relative pl-6 pb-5" key={phase.dayRange}>
+                        {index < DISCIPLINE_TIMELINE.length - 1 ? (
+                          <span className="bg-border/70 absolute top-6 left-[7px] h-[calc(100%-8px)] w-px" />
+                        ) : null}
+                        <span
+                          className={`absolute top-1.5 left-0 size-4 rounded-full border-2 border-background ${isActivePhase ? 'bg-green-500' : 'bg-primary'
+                            }`}
+                        />
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className={`text-sm font-semibold ${isActivePhase ? 'text-success' : ''}`}>
+                              {phase.dayRange} - {phase.title}
+                            </p>
+                            <Button
+                              aria-label={`Open help for ${phase.dayRange}`}
+                              className="size-6 rounded-full p-0"
+                              onClick={() => {
+                                setSelectedTimelinePhase(phase);
+                              }}
+                              size="icon"
+                              type="button"
+                              variant="ghost"
+                            >
+                              <Info className="size-3" />
+                            </Button>
+                            <Badge className="text-[10px]" variant="secondary">
+                              Difficulty: {phase.difficulty}
+                            </Badge>
+                          </div>
 
-                        {phase.challenge && phase.challenge.length > 0 ? (
                           <div className="space-y-1">
                             <p className="text-muted-foreground text-xs font-semibold uppercase">
-                              Challenge
+                              What happens
                             </p>
                             <ul className="text-muted-foreground space-y-1 text-sm">
-                              {phase.challenge.map(point => (
-                                <li key={`${phase.dayRange}-${point}`}>- {point}</li>
+                              {phase.whatHappens.map(point => (
+                                <li key={point}>- {point}</li>
                               ))}
                             </ul>
                           </div>
-                        ) : null}
 
-                        {UNLOCK_STAGES[index]?.benefits?.length ? (
-                          <div className="space-y-1">
-                            <p className="text-muted-foreground text-xs font-semibold uppercase">
-                              Benefits
-                            </p>
-                            <ul className="text-muted-foreground space-y-1 text-sm">
-                              {UNLOCK_STAGES[index].benefits.map(item => (
-                                <li key={`${phase.dayRange}-benefit-${item}`}>- {item}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        ) : null}
+                          {phase.challenge && phase.challenge.length > 0 ? (
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground text-xs font-semibold uppercase">
+                                Challenge
+                              </p>
+                              <ul className="text-muted-foreground space-y-1 text-sm">
+                                {phase.challenge.map(point => (
+                                  <li key={`${phase.dayRange}-${point}`}>- {point}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+
+                          {UNLOCK_STAGES[index]?.benefits?.length ? (
+                            <div className="space-y-1">
+                              <p className="text-muted-foreground text-xs font-semibold uppercase">
+                                Benefits
+                              </p>
+                              <ul className="text-muted-foreground space-y-1 text-sm">
+                                {UNLOCK_STAGES[index].benefits.map(item => (
+                                  <li key={`${phase.dayRange}-benefit-${item}`}>- {item}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>

@@ -121,7 +121,7 @@ const HomePage = ({
 
   const handleDisciplineCardClick = useCallback(() => {
     const nextCount = disciplineCardClickCount + 1;
-    if (nextCount >= 5) {
+    if (nextCount >= 3) {
       setDisciplineCardClickCount(0);
       onOpenDiscipline?.();
       return;

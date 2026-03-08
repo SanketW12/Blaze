@@ -19,6 +19,7 @@ export const useCommunicationProgress = (log: CommunicationDailyLog | null) => {
         totalSectionCount: 0,
         sectionProgress: {
           englishFluency: 0,
+          thinkingInEnglish: 0,
           tongueTwisters: 0,
           smoothCalmSpeaking: 0,
           speechClarityDrill: 0,

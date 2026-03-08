@@ -21,7 +21,7 @@ export const COMMUNICATION_SECTION_TEMPLATES: CommunicationSectionTemplate[] = [
     label: 'English Fluency',
     description:
       'Build confidence in speaking natural English without overthinking every sentence.',
-    weight: 13,
+    weight: 10,
     tasks: [
       {
         id: 'speakOnlyInEnglish',
@@ -31,6 +31,30 @@ export const COMMUNICATION_SECTION_TEMPLATES: CommunicationSectionTemplate[] = [
       {
         id: 'describeYourDay',
         label: 'Describe your day or routine in English',
+        type: 'checkbox'
+      }
+    ]
+  },
+  {
+    key: 'thinkingInEnglish',
+    label: 'Thinking in English',
+    description:
+      'Train your mind to form thoughts directly in English so speaking becomes faster and more natural.',
+    weight: 3,
+    tasks: [
+      {
+        id: 'innerMonologueEnglish',
+        label: 'Do a 5-minute inner monologue in English',
+        type: 'checkbox'
+      },
+      {
+        id: 'thinkAndNameObjects',
+        label: 'Name objects and actions around you in English',
+        type: 'checkbox'
+      },
+      {
+        id: 'translateInstantThoughts',
+        label: 'Catch 3 thoughts and restate them directly in English',
         type: 'checkbox'
       }
     ]

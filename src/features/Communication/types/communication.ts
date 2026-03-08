@@ -1,5 +1,6 @@
 export type CommunicationSectionKey =
   | 'englishFluency'
+  | 'thinkingInEnglish'
   | 'tongueTwisters'
   | 'smoothCalmSpeaking'
   | 'speechClarityDrill'
