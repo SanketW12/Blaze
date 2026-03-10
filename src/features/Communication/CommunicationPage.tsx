@@ -109,9 +109,27 @@ const CommunicationPage = ({ onBackToHome }: CommunicationPageProps) => {
     const weekLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     const weekDays = weekLabels.map((label, index) => {
       const date = addDays(monday, index);
+      const dateKey = formatDate(date);
       return {
         label,
-        active: activeDates.has(formatDate(date))
+        active: activeDates.has(dateKey),
+        isToday: dateKey === formatDate(today)
+      };
+    });
+
+    const monthLabels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    const monthDays = Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(today.getFullYear(), today.getMonth(), index + 1);
+      const dateKey = formatDate(date);
+
+      return {
+        date: dateKey,
+        dayOfMonth: index + 1,
+        weekDayLabel: monthLabels[date.getDay()],
+        active: activeDates.has(dateKey),
+        isToday: dateKey === formatDate(today),
+        isFuture: dateKey > formatDate(today)
       };
     });
 
@@ -119,7 +137,8 @@ const CommunicationPage = ({ onBackToHome }: CommunicationPageProps) => {
       currentStreak: streak?.currentStreakDays ?? currentStreak,
       longestStreak: streak?.longestStreakDays ?? longestStreak,
       totalPracticeDays: streak?.totalQualifiedDays ?? activeDates.size,
-      weekDays
+      weekDays,
+      monthDays
     };
   }, [recentLogs, streak]);
 
@@ -164,6 +183,7 @@ const CommunicationPage = ({ onBackToHome }: CommunicationPageProps) => {
             <CommunicationStreakCard
               currentStreak={streakStats.currentStreak}
               longestStreak={streakStats.longestStreak}
+              monthDays={streakStats.monthDays}
               totalPracticeDays={streakStats.totalPracticeDays}
               weekDays={streakStats.weekDays}
             />

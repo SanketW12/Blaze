@@ -1,5 +1,9 @@
 import { DISCIPLINE_STREAK_THRESHOLD } from '../constants/home';
-import type { DisciplineStreakState, DisciplineWeekDayItem } from '../types/disciplineStreak';
+import type {
+  DisciplineMonthDayItem,
+  DisciplineStreakState,
+  DisciplineWeekDayItem
+} from '../types/disciplineStreak';
 
 export interface DisciplineStreakSource {
   currentStreakDays: number;
@@ -77,6 +81,31 @@ const buildWeekDays = (
   });
 };
 
+const buildMonthDays = (
+  completedDateSet: Set<string>,
+  today: string
+): DisciplineMonthDayItem[] => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const labels = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+  return Array.from({ length: daysInMonth }, (_, index) => {
+    const date = new Date(year, month, index + 1);
+    const dateKey = formatDateKey(date);
+
+    return {
+      date: dateKey,
+      dayOfMonth: index + 1,
+      weekDayLabel: labels[date.getDay()],
+      active: completedDateSet.has(dateKey),
+      isToday: dateKey === today,
+      isFuture: dateKey > today
+    };
+  });
+};
+
 export const buildDisciplineStreakState = ({
   currentStreakDays,
   currentStreakStartDate,
@@ -107,7 +136,8 @@ export const buildDisciplineStreakState = ({
     lastQualifiedDate,
     totalQualifiedDays,
     qualificationProgressThreshold,
-    weekDays: buildWeekDays(completedDateSet, today)
+    weekDays: buildWeekDays(completedDateSet, today),
+    monthDays: buildMonthDays(completedDateSet, today)
   };
 };
 

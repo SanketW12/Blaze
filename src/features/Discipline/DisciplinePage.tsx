@@ -388,6 +388,7 @@ const DisciplinePage = ({ onBackToHome }: DisciplinePageProps) => {
                 <CommunicationStreakCard
                   currentStreak={streak.currentStreakDays}
                   longestStreak={streak.longestStreakDays}
+                  monthDays={streak.monthDays}
                   subtitle="Track discipline streak and self-control momentum"
                   title="Discipline Streak"
                   totalPracticeDays={streak.totalQualifiedDays}

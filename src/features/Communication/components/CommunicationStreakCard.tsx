@@ -1,20 +1,29 @@
+import { useEffect, useMemo, useRef } from 'react';
 import { Check, Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 
-interface StreakDayItem {
+interface StreakWeekDayItem {
   label: string;
   active: boolean;
   isToday?: boolean;
-  tapCount?: number;
+}
+
+interface StreakMonthDayItem {
+  date: string;
+  dayOfMonth: number;
+  weekDayLabel: string;
+  active: boolean;
+  isToday?: boolean;
+  isFuture?: boolean;
 }
 
 interface CommunicationStreakCardProps {
   currentStreak: number;
   longestStreak: number;
   totalPracticeDays: number;
-  weekDays: StreakDayItem[];
+  weekDays: StreakWeekDayItem[];
   title?: string;
   subtitle?: string;
   onCurrentStreakClick?: () => void;
@@ -25,6 +34,9 @@ interface CommunicationStreakCardProps {
     isSaving?: boolean;
     onClick?: () => void;
   };
+  monthDays?: StreakMonthDayItem[];
+  onMonthDayToggle?: (date: string, nextActive: boolean) => void;
+  savingMonthDate?: string | null;
 }
 
 export const CommunicationStreakCard = ({
@@ -35,10 +47,46 @@ export const CommunicationStreakCard = ({
   title = 'Current Streak',
   subtitle = 'Keep your practice going daily',
   onCurrentStreakClick,
-  todayTapProgress
-}: CommunicationStreakCardProps) => (
-  <Card className="bg-muted/25 shadow-none">
-    <CardContent className="space-y-5 p-4">
+  todayTapProgress,
+  monthDays,
+  onMonthDayToggle,
+  savingMonthDate
+}: CommunicationStreakCardProps) => {
+  const displayDays = monthDays && monthDays.length > 0 ? monthDays : weekDays;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const activeDayRef = useRef<HTMLButtonElement | HTMLDivElement | null>(null);
+
+  const activeDayIndex = useMemo(() => {
+    const todayIndex = displayDays.findIndex(day => day.isToday);
+    if (todayIndex >= 0) return todayIndex;
+
+    for (let index = displayDays.length - 1; index >= 0; index -= 1) {
+      if (displayDays[index].active) {
+        return index;
+      }
+    }
+
+    return 0;
+  }, [displayDays]);
+
+  useEffect(() => {
+    if (!scrollContainerRef.current || !activeDayRef.current) return;
+
+    const frame = requestAnimationFrame(() => {
+      activeDayRef.current?.scrollIntoView({
+        block: 'nearest',
+        inline: 'center'
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, [activeDayIndex, displayDays.length]);
+
+  return (
+    <Card className="bg-muted/25 shadow-none">
+      <CardContent className="space-y-5 p-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <div className="flex size-8 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
@@ -61,48 +109,101 @@ export const CommunicationStreakCard = ({
         </button>
       </div>
 
-      <div className="grid grid-cols-7 gap-2">
-        {weekDays.map((day, index) => (
-          <div className="flex flex-col items-center gap-2" key={`${day.label}-${index}`}>
-            {day.isToday && todayTapProgress?.onClick && !day.active ? (
-              <button
-                aria-label="Mark today's discipline streak"
-                className={cn(
-                  'flex size-10 items-center justify-center rounded-full border transition-colors',
-                  'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15',
-                  todayTapProgress.isSaving ? 'pointer-events-none opacity-60' : 'cursor-pointer'
-                )}
-                disabled={todayTapProgress.isSaving}
-                onClick={event => {
-                  event.stopPropagation();
-                  todayTapProgress.onClick?.();
-                }}
-                type="button"
-              />
-            ) : (
-              <div
-                className={cn(
-                  'flex size-10 items-center justify-center rounded-full border',
-                  day.active
-                    ? 'border-emerald-500/40 bg-emerald-500 text-white'
-                    : 'border-border/60 bg-muted text-muted-foreground'
-                )}
-              >
-                {day.active ? <Check className="size-5" /> : null}
-              </div>
-            )}
-            <span
-              className={`text-xs font-semibold ${
-                day.active ? 'text-emerald-500' : 'text-muted-foreground'
-              }`}
-            >
-              {day.label}
-            </span>
-          </div>
-        ))}
-      </div>
+        <div className="overflow-x-auto" ref={scrollContainerRef}>
+          <div className="flex min-w-max gap-2 pb-1">
+            {displayDays.map((day, index) => {
+              const isSaving = day.date ? savingMonthDate === day.date : false;
+              const canToggle =
+                Boolean(onMonthDayToggle) &&
+                Boolean(day.date) &&
+                !day.isFuture &&
+                !day.isToday &&
+                !isSaving;
 
-      <Separator className="border-dashed" />
+              const label = day.label ?? day.weekDayLabel ?? '';
+
+              const content = (
+                <>
+                  <div
+                    className={cn(
+                      'flex size-10 items-center justify-center rounded-full border text-xs font-semibold transition-colors',
+                      day.active
+                        ? 'border-emerald-500/40 bg-emerald-500 text-white'
+                        : day.isToday
+                          ? 'border-amber-500/40 bg-amber-500/10 text-amber-400'
+                          : 'border-border/60 bg-muted text-muted-foreground'
+                    )}
+                  >
+                    {day.active ? <Check className="size-5" /> : day.dayOfMonth ?? null}
+                  </div>
+                  <span
+                    className={cn(
+                      'text-xs font-semibold',
+                      day.active ? 'text-emerald-500' : 'text-muted-foreground'
+                    )}
+                  >
+                    {label}
+                  </span>
+                </>
+              );
+
+              if (day.isToday && todayTapProgress?.onClick && !day.active) {
+                return (
+                  <button
+                    aria-label="Mark today's discipline streak"
+                    className="flex flex-col items-center gap-2"
+                    disabled={todayTapProgress.isSaving}
+                    key={day.date ?? `${label}-${index}`}
+                    ref={index === activeDayIndex ? activeDayRef : null}
+                    onClick={event => {
+                      event.stopPropagation();
+                      todayTapProgress.onClick?.();
+                    }}
+                    type="button"
+                  >
+                    <div
+                      className={cn(
+                        'flex size-10 items-center justify-center rounded-full border transition-colors',
+                        'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15',
+                        todayTapProgress.isSaving ? 'pointer-events-none opacity-60' : 'cursor-pointer'
+                      )}
+                    />
+                    <span className="text-xs font-semibold text-amber-400">{label}</span>
+                  </button>
+                );
+              }
+
+              if (canToggle) {
+                return (
+                  <button
+                    className="flex cursor-pointer flex-col items-center gap-2"
+                    key={day.date ?? `${label}-${index}`}
+                    ref={index === activeDayIndex ? activeDayRef : null}
+                    onClick={() => {
+                      if (!day.date) return;
+                      onMonthDayToggle?.(day.date, !day.active);
+                    }}
+                    type="button"
+                  >
+                    {content}
+                  </button>
+                );
+              }
+
+              return (
+                <div
+                  className="flex flex-col items-center gap-2"
+                  key={day.date ?? `${label}-${index}`}
+                  ref={index === activeDayIndex ? activeDayRef : null}
+                >
+                  {content}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <Separator className="border-dashed" />
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-1">
@@ -118,6 +219,7 @@ export const CommunicationStreakCard = ({
           <p className="text-2xl font-bold">{totalPracticeDays}</p>
         </div>
       </div>
-    </CardContent>
-  </Card>
-);
+      </CardContent>
+    </Card>
+  );
+};

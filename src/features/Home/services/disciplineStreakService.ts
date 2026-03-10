@@ -135,8 +135,6 @@ const hasLegacyFields = (value: unknown) => {
 
   const raw = value as Record<string, unknown>;
   return (
-    'completed_dates' in raw ||
-    'completedDates' in raw ||
     'pending_tap_counts' in raw ||
     'pendingTapCounts' in raw ||
     'required_taps' in raw ||
@@ -212,7 +210,10 @@ const computeSummaryFromCompletedDates = (completedDates: string[]): DisciplineS
   };
 };
 
-const buildStreakWritePayload = (summary: DisciplineStreakSummary) => ({
+const buildStreakWritePayload = (
+  summary: DisciplineStreakSummary,
+  completedDates: string[]
+) => ({
   current_streak_days: summary.currentStreakDays,
   current_streak_start_date: summary.currentStreakStartDate,
   current_streak_end_date: summary.currentStreakEndDate,
@@ -222,7 +223,7 @@ const buildStreakWritePayload = (summary: DisciplineStreakSummary) => ({
   longest_streak_start_date: summary.longestStreakStartDate,
   qualification_progress_threshold: summary.qualificationProgressThreshold,
   total_qualified_days: summary.totalQualifiedDays,
-  completed_dates: deleteField(),
+  completed_dates: [...new Set(completedDates)].sort(),
   completedDates: deleteField(),
   pending_tap_counts: deleteField(),
   pendingTapCounts: deleteField(),
@@ -244,10 +245,9 @@ const loadDisciplineStreakState = async (userId: string) => {
   const rawDiscipline = getDisciplineFieldData(data);
   const legacyCompletedDates = getLegacyCompletedDates(rawDiscipline);
   const mappedSummary = mapDisciplineStreakSummary(rawDiscipline);
-  const summary =
-    mappedSummary.totalQualifiedDays === 0 && legacyCompletedDates.length > 0
-      ? computeSummaryFromCompletedDates(legacyCompletedDates)
-      : mappedSummary;
+  const summary = legacyCompletedDates.length > 0
+    ? computeSummaryFromCompletedDates(legacyCompletedDates)
+    : mappedSummary;
 
   if (hasLegacyFields(rawDiscipline)) {
     await runTransaction(db, async transaction => {
@@ -257,7 +257,7 @@ const loadDisciplineStreakState = async (userId: string) => {
         {
           user_id: userId,
           streak: {
-            discipline: buildStreakWritePayload(summary)
+            discipline: buildStreakWritePayload(summary, legacyCompletedDates)
           },
           ...(freshSnapshot.exists() ? {} : { created_at: serverTimestamp() }),
           updated_at: serverTimestamp()
@@ -294,47 +294,20 @@ export const disciplineStreakService = {
         : {};
       const rawDiscipline = getDisciplineFieldData(data);
       const legacyCompletedDates = getLegacyCompletedDates(rawDiscipline);
-      const mappedSummary = mapDisciplineStreakSummary(rawDiscipline);
-      const previousSummary =
-        mappedSummary.totalQualifiedDays === 0 && legacyCompletedDates.length > 0
-          ? computeSummaryFromCompletedDates(legacyCompletedDates)
-          : mappedSummary;
-      if (previousSummary.lastQualifiedDate === today) {
+      const completedDatesSet = new Set(legacyCompletedDates);
+      if (completedDatesSet.has(today)) {
         return;
       }
-      const yesterday = formatDateKey(addDays(new Date(`${today}T00:00:00`), -1));
-      const continuesCurrentStreak = previousSummary.lastQualifiedDate === yesterday;
-      const currentStreakDays = continuesCurrentStreak
-        ? previousSummary.currentStreakDays + 1
-        : 1;
-      const currentStreakStartDate = continuesCurrentStreak
-        ? previousSummary.currentStreakStartDate ?? yesterday
-        : today;
-      const longestStreakImproved = currentStreakDays > previousSummary.longestStreakDays;
-      const nextSummary: DisciplineStreakSummary = {
-        currentStreakDays,
-        currentStreakStartDate,
-        currentStreakEndDate: today,
-        longestStreakDays: longestStreakImproved
-          ? currentStreakDays
-          : previousSummary.longestStreakDays,
-        longestStreakStartDate: longestStreakImproved
-          ? currentStreakStartDate
-          : previousSummary.longestStreakStartDate,
-        longestStreakEndDate: longestStreakImproved
-          ? today
-          : previousSummary.longestStreakEndDate,
-        lastQualifiedDate: today,
-        totalQualifiedDays: previousSummary.totalQualifiedDays + 1,
-        qualificationProgressThreshold: DISCIPLINE_STREAK_THRESHOLD
-      };
+      completedDatesSet.add(today);
+      const nextCompletedDates = [...completedDatesSet].sort();
+      const nextSummary = computeSummaryFromCompletedDates(nextCompletedDates);
 
       transaction.set(
         ref,
         {
           user_id: userId,
           streak: {
-            discipline: buildStreakWritePayload(nextSummary)
+            discipline: buildStreakWritePayload(nextSummary, nextCompletedDates)
           },
           ...(streakSnapshot.exists() ? {} : { created_at: serverTimestamp() }),
           updated_at: serverTimestamp()
@@ -360,26 +333,77 @@ export const disciplineStreakService = {
       const data = streakSnapshot.data() as Record<string, unknown>;
       const rawDiscipline = getDisciplineFieldData(data);
       const legacyCompletedDates = getLegacyCompletedDates(rawDiscipline);
-      const mappedSummary = mapDisciplineStreakSummary(rawDiscipline);
-      const previousSummary =
-        mappedSummary.totalQualifiedDays === 0 && legacyCompletedDates.length > 0
-          ? computeSummaryFromCompletedDates(legacyCompletedDates)
-          : mappedSummary;
+      const previousSummary = computeSummaryFromCompletedDates(legacyCompletedDates);
+      const trimmedCompletedDates = legacyCompletedDates.filter(date => {
+        if (!previousSummary.currentStreakStartDate || !previousSummary.currentStreakEndDate) {
+          return true;
+        }
 
-      const resetSummary: DisciplineStreakSummary = {
-        ...previousSummary,
-        currentStreakDays: 0,
-        currentStreakStartDate: null,
-        currentStreakEndDate: null
-      };
+        return (
+          date < previousSummary.currentStreakStartDate ||
+          date > previousSummary.currentStreakEndDate
+        );
+      });
+      const resetSummary = computeSummaryFromCompletedDates(trimmedCompletedDates);
+
 
       transaction.set(
         ref,
         {
           user_id: userId,
           streak: {
-            discipline: buildStreakWritePayload(resetSummary)
+            discipline: buildStreakWritePayload(resetSummary, trimmedCompletedDates)
           },
+          updated_at: serverTimestamp()
+        },
+        { merge: true }
+      );
+    });
+
+    return loadDisciplineStreakState(userId);
+  },
+
+  async toggleDateCompletion(
+    date: string,
+    completed: boolean,
+    userId = DEFAULT_HOME_USER_ID
+  ): Promise<DisciplineStreakState> {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return loadDisciplineStreakState(userId);
+    }
+
+    const today = formatDateKey(new Date());
+    if (date > today) {
+      return loadDisciplineStreakState(userId);
+    }
+
+    const ref = streakDocRef(userId);
+    await runTransaction(db, async transaction => {
+      const streakSnapshot = await transaction.get(ref);
+      const data = streakSnapshot.exists()
+        ? (streakSnapshot.data() as Record<string, unknown>)
+        : {};
+      const rawDiscipline = getDisciplineFieldData(data);
+      const currentCompletedDates = getLegacyCompletedDates(rawDiscipline);
+      const completedDatesSet = new Set(currentCompletedDates);
+
+      if (completed) {
+        completedDatesSet.add(date);
+      } else {
+        completedDatesSet.delete(date);
+      }
+
+      const nextCompletedDates = [...completedDatesSet].sort();
+      const nextSummary = computeSummaryFromCompletedDates(nextCompletedDates);
+
+      transaction.set(
+        ref,
+        {
+          user_id: userId,
+          streak: {
+            discipline: buildStreakWritePayload(nextSummary, nextCompletedDates)
+          },
+          ...(streakSnapshot.exists() ? {} : { created_at: serverTimestamp() }),
           updated_at: serverTimestamp()
         },
         { merge: true }

@@ -5,6 +5,15 @@ export interface DisciplineWeekDayItem {
   isToday: boolean;
 }
 
+export interface DisciplineMonthDayItem {
+  date: string;
+  dayOfMonth: number;
+  weekDayLabel: string;
+  active: boolean;
+  isToday: boolean;
+  isFuture: boolean;
+}
+
 export interface DisciplineStreakState {
   currentStreakDays: number;
   currentStreakStartDate: string | null;
@@ -16,4 +25,5 @@ export interface DisciplineStreakState {
   totalQualifiedDays: number;
   qualificationProgressThreshold: number;
   weekDays: DisciplineWeekDayItem[];
+  monthDays: DisciplineMonthDayItem[];
 }

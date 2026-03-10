@@ -10,7 +10,7 @@ import { DISCIPLINE_STREAK_REQUIRED_TAPS } from './constants/home';
 import { disciplineStreakService } from './services/disciplineStreakService';
 import { useHomeStore } from './store';
 import type { DisciplineStreakState } from './types/disciplineStreak';
-import { buildEmptyDisciplineStreakState } from './utils/disciplineStreak';
+import { buildEmptyDisciplineStreakState, formatDateKey } from './utils/disciplineStreak';
 
 interface HomePageProps {
   onOpenNutrition?: () => void;
@@ -45,6 +45,7 @@ const HomePage = ({
     buildEmptyDisciplineStreakState()
   );
   const [isUpdatingDisciplineStreak, setIsUpdatingDisciplineStreak] = useState(false);
+  const [savingDisciplineDate, setSavingDisciplineDate] = useState<string | null>(null);
   const [disciplineCardClickCount, setDisciplineCardClickCount] = useState(0);
   const [disciplineTapCount, setDisciplineTapCount] = useState(0);
   const disciplineTapResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -130,6 +131,30 @@ const HomePage = ({
     setDisciplineCardClickCount(nextCount);
   }, [disciplineCardClickCount, onOpenDiscipline]);
 
+  const handleToggleMonthDay = useCallback(
+    async (date: string, nextActive: boolean) => {
+      if (isUpdatingDisciplineStreak) {
+        return;
+      }
+
+      const today = formatDateKey(new Date());
+      if (date > today) {
+        return;
+      }
+
+      try {
+        setIsUpdatingDisciplineStreak(true);
+        setSavingDisciplineDate(date);
+        const nextStreak = await disciplineStreakService.toggleDateCompletion(date, nextActive);
+        setDisciplineStreak(nextStreak);
+      } finally {
+        setSavingDisciplineDate(null);
+        setIsUpdatingDisciplineStreak(false);
+      }
+    },
+    [isUpdatingDisciplineStreak]
+  );
+
   const navigationMenu: NavigationMenuProps[] = useMemo(
     () => [
       {
@@ -154,6 +179,15 @@ const HomePage = ({
     ]
   );
 
+  const monthDaysForCard = useMemo(
+    () =>
+      disciplineStreak.monthDays.map(day => ({
+        ...day,
+        label: day.weekDayLabel
+      })),
+    [disciplineStreak.monthDays]
+  );
+
   return (
     <main className=" bg-card text-foreground pb-24">
       <section className="mx-auto w-full max-w-lg  space-y-4">
@@ -172,6 +206,9 @@ const HomePage = ({
           }}
           totalPracticeDays={disciplineStreak.totalQualifiedDays}
           weekDays={disciplineStreak.weekDays}
+          monthDays={monthDaysForCard}
+          onMonthDayToggle={handleToggleMonthDay}
+          savingMonthDate={savingDisciplineDate}
         />
         <div className="flex items-center justify-between">
           <p className="text-xs font-semibold tracking-wide uppercase text-muted-foreground">
