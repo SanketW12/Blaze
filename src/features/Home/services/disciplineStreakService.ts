@@ -174,17 +174,20 @@ const computeSummaryFromCompletedDates = (completedDates: string[]): DisciplineS
   });
 
   const today = formatDateKey(new Date());
+  const yesterday = formatDateKey(addDays(new Date(`${today}T00:00:00`), -1));
   let currentStreakDays = 0;
   let currentStreakStartDate: string | null = null;
   let currentStreakEndDate: string | null = null;
   const completedDateSet = new Set(sortedDates);
+  const latestCompletedDate = sortedDates.at(-1) ?? null;
 
-  if (completedDateSet.has(today)) {
+  // Keep streak active if latest completion is today or yesterday.
+  if (latestCompletedDate && (latestCompletedDate === today || latestCompletedDate === yesterday)) {
     currentStreakDays = 1;
-    currentStreakStartDate = today;
-    currentStreakEndDate = today;
+    currentStreakStartDate = latestCompletedDate;
+    currentStreakEndDate = latestCompletedDate;
 
-    let cursor = new Date(`${today}T00:00:00`);
+    let cursor = new Date(`${latestCompletedDate}T00:00:00`);
     while (true) {
       cursor = addDays(cursor, -1);
       const cursorDate = formatDateKey(cursor);
