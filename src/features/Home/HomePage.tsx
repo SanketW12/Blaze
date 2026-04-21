@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Speech, Sprout } from 'lucide-react';
+import { ArrowRight, Sparkles, Speech, Sprout } from 'lucide-react';
 import { Card, CardContent, } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useAppStore } from '@/store';
 import { CommunicationStreakCard } from '@/features/Communication/components/CommunicationStreakCard';
 import { communicationDataService } from '@/features/Communication/services/communicationDataService';
+import { skinCareDataService } from '@/features/SkinCare/services/skinCareDataService';
 import { DISCIPLINE_STREAK_REQUIRED_TAPS } from './constants/home';
 import { disciplineStreakService } from './services/disciplineStreakService';
 import { useHomeStore } from './store';
@@ -16,13 +17,14 @@ interface HomePageProps {
   onOpenNutrition?: () => void;
   onOpenCommunication?: () => void;
   onOpenDiscipline?: () => void;
+  onOpenSkinCare?: () => void;
   onOpenSkills?: () => void;
 }
 
 
 
 interface NavigationMenuProps {
-  key: 'learning' | 'nutrition' | 'skills' | 'communication';
+  key: 'learning' | 'nutrition' | 'skills' | 'communication' | 'skinCare';
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
@@ -33,6 +35,7 @@ const HomePage = ({
   onOpenNutrition,
   onOpenCommunication,
   onOpenDiscipline,
+  onOpenSkinCare,
   onOpenSkills: _onOpenSkills
 }: HomePageProps) => {
   const dailyLog = useAppStore(state => state.dailyLog);
@@ -41,6 +44,8 @@ const HomePage = ({
   const nutritionProgress = useHomeStore(state => state.menuProgress.nutrition);
   const setCommunicationProgress = useHomeStore(state => state.setCommunicationProgress);
   const setNutritionCaloriesProgress = useHomeStore(state => state.setNutritionCaloriesProgress);
+  const skinCareProgress = useHomeStore(state => state.menuProgress.skinCare);
+  const setSkinCareProgress = useHomeStore(state => state.setSkinCareProgress);
   const [disciplineStreak, setDisciplineStreak] = useState<DisciplineStreakState>(
     buildEmptyDisciplineStreakState()
   );
@@ -61,17 +66,20 @@ const HomePage = ({
 
     const loadHomeProgress = async () => {
       try {
-        const [communicationLog, manualDisciplineStreak] = await Promise.all([
+        const [communicationLog, manualDisciplineStreak, skinCareLog] = await Promise.all([
           communicationDataService.getTodayCommunicationLog(),
-          disciplineStreakService.getDisciplineStreak()
+          disciplineStreakService.getDisciplineStreak(),
+          skinCareDataService.getTodaySkinCareLog()
         ]);
         if (!isActive) return;
 
         setCommunicationProgress(communicationLog?.overallProgress ?? 1);
+        setSkinCareProgress(skinCareLog?.overallProgress ?? 1);
         setDisciplineStreak(manualDisciplineStreak);
       } catch {
         if (!isActive) return;
         setCommunicationProgress(1);
+        setSkinCareProgress(1);
         setDisciplineStreak(buildEmptyDisciplineStreakState());
       }
     };
@@ -81,7 +89,7 @@ const HomePage = ({
     return () => {
       isActive = false;
     };
-  }, [setCommunicationProgress]);
+  }, [setCommunicationProgress, setSkinCareProgress]);
 
   useEffect(() => () => {
     if (disciplineTapResetTimeoutRef.current) {
@@ -170,12 +178,21 @@ const HomePage = ({
         onClick: onOpenNutrition || (() => { }),
         progress: nutritionProgress.progress
       },
+      {
+        key: 'skinCare',
+        label: 'Skin Care',
+        icon: <Sparkles className="size-4" />,
+        onClick: onOpenSkinCare || (() => {}),
+        progress: skinCareProgress.progress
+      }
     ],
     [
       communicationProgress.progress,
       onOpenCommunication,
       nutritionProgress.progress,
       onOpenNutrition,
+      onOpenSkinCare,
+      skinCareProgress.progress
     ]
   );
 

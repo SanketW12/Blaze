@@ -3,6 +3,7 @@ import { ChatPage } from '@/features/Chat';
 import { HomePage } from '@/features/Home';
 import { CommunicationPage } from '@/features/Communication';
 import { DisciplinePage } from '@/features/Discipline';
+import { SkinCarePage } from '@/features/SkinCare';
 import { HomeHeader } from '@/features/Home/components/HomeHeader';
 import FooterNavbar from './FooterNavbar';
 import type { FooterTab } from './FooterNavbar';
@@ -12,6 +13,7 @@ import { Button } from '@/components/ui/button';
 
 const APP_LOCK_ENABLED_KEY = 'blaze-app-lock-enabled';
 const APP_LOCK_BIOMETRIC_ID_KEY = 'blaze-app-lock-biometric-id';
+const APP_LOCK_TEMP_DISABLED = true;
 
 const bufferToBase64Url = (buffer: ArrayBuffer) => {
   const bytes = new Uint8Array(buffer);
@@ -39,7 +41,9 @@ const createRandomBuffer = (length = 32) => {
 
 const App = () => {
   const [activeTab, setActiveTab] = useState<FooterTab>('home');
-  const [homeView, setHomeView] = useState<'home' | 'nutrition' | 'communication' | 'discipline'>('home');
+  const [homeView, setHomeView] = useState<
+    'home' | 'nutrition' | 'communication' | 'discipline' | 'skinCare'
+  >('home');
   const [isLocked, setIsLocked] = useState(false);
   const [hasPassedLockGate, setHasPassedLockGate] = useState(false);
   const [biometricCredentialId, setBiometricCredentialId] = useState<string | null>(null);
@@ -67,11 +71,15 @@ const App = () => {
       if (homeView === 'discipline') {
         return <DisciplinePage onBackToHome={() => setHomeView('home')} />;
       }
+      if (homeView === 'skinCare') {
+        return <SkinCarePage onBackToHome={() => setHomeView('home')} />;
+      }
       return (
         <HomePage
           onOpenCommunication={() => setHomeView('communication')}
           onOpenDiscipline={() => setHomeView('discipline')}
           onOpenNutrition={() => setHomeView('nutrition')}
+          onOpenSkinCare={() => setHomeView('skinCare')}
         />
       );
     }
@@ -107,6 +115,13 @@ const App = () => {
   };
 
   useEffect(() => {
+    if (APP_LOCK_TEMP_DISABLED) {
+      setIsLocked(false);
+      setShowLockSetup(false);
+      setHasPassedLockGate(true);
+      return;
+    }
+
     const storedBiometricId = localStorage.getItem(APP_LOCK_BIOMETRIC_ID_KEY);
     localStorage.removeItem('blaze-app-lock-pin-hash');
 

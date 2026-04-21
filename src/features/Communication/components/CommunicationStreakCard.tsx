@@ -52,9 +52,31 @@ export const CommunicationStreakCard = ({
   onMonthDayToggle,
   savingMonthDate
 }: CommunicationStreakCardProps) => {
-  const displayDays = monthDays && monthDays.length > 0 ? monthDays : weekDays;
+  const displayDays = useMemo(
+    () =>
+      monthDays && monthDays.length > 0
+        ? monthDays.map((day, index) => ({
+            key: day.date || `month-${index}`,
+            date: day.date,
+            label: day.weekDayLabel,
+            active: day.active,
+            isToday: Boolean(day.isToday),
+            isFuture: Boolean(day.isFuture),
+            dayOfMonth: day.dayOfMonth
+          }))
+        : weekDays.map((day, index) => ({
+            key: `week-${index}-${day.label}`,
+            date: null as string | null,
+            label: day.label,
+            active: day.active,
+            isToday: Boolean(day.isToday),
+            isFuture: false,
+            dayOfMonth: null as number | null
+          })),
+    [monthDays, weekDays]
+  );
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const activeDayRef = useRef<HTMLButtonElement | HTMLDivElement | null>(null);
+  const activeDayRef = useRef<HTMLDivElement | null>(null);
 
   const activeDayIndex = useMemo(() => {
     const todayIndex = displayDays.findIndex(day => day.isToday);
@@ -87,27 +109,27 @@ export const CommunicationStreakCard = ({
   return (
     <Card className="bg-muted/25 shadow-none">
       <CardContent className="space-y-5 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div className="flex size-8 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
-            <Zap className="size-4 fill-current" />
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="flex size-8 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
+              <Zap className="size-4 fill-current" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold">{title}</p>
+              <p className="text-muted-foreground text-xs">{subtitle}</p>
+            </div>
           </div>
-          <div>
-            <p className="text-lg font-semibold">{title}</p>
-            <p className="text-muted-foreground text-xs">{subtitle}</p>
-          </div>
+          <button
+            className={cn(
+              'bg-transparent p-0 text-2xl font-bold',
+              onCurrentStreakClick ? 'cursor-pointer' : undefined
+            )}
+            onClick={onCurrentStreakClick}
+            type="button"
+          >
+            {currentStreak} days
+          </button>
         </div>
-        <button
-          className={cn(
-            'bg-transparent p-0 text-2xl font-bold',
-            onCurrentStreakClick ? 'cursor-pointer' : undefined
-          )}
-          onClick={onCurrentStreakClick}
-          type="button"
-        >
-          {currentStreak} days
-        </button>
-      </div>
 
         <div className="overflow-x-auto" ref={scrollContainerRef}>
           <div className="flex min-w-max gap-2 pb-1">
@@ -120,7 +142,7 @@ export const CommunicationStreakCard = ({
                 !day.isToday &&
                 !isSaving;
 
-              const label = day.label ?? day.weekDayLabel ?? '';
+              const label = day.label ?? '';
 
               const content = (
                 <>
@@ -149,51 +171,61 @@ export const CommunicationStreakCard = ({
 
               if (day.isToday && todayTapProgress?.onClick && !day.active) {
                 return (
-                  <button
-                    aria-label="Mark today's discipline streak"
+                  <div
                     className="flex flex-col items-center gap-2"
-                    disabled={todayTapProgress.isSaving}
-                    key={day.date ?? `${label}-${index}`}
+                    key={day.key}
                     ref={index === activeDayIndex ? activeDayRef : null}
-                    onClick={event => {
-                      event.stopPropagation();
-                      todayTapProgress.onClick?.();
-                    }}
-                    type="button"
                   >
-                    <div
-                      className={cn(
-                        'flex size-10 items-center justify-center rounded-full border transition-colors',
-                        'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15',
-                        todayTapProgress.isSaving ? 'pointer-events-none opacity-60' : 'cursor-pointer'
-                      )}
-                    />
-                    <span className="text-xs font-semibold text-amber-400">{label}</span>
-                  </button>
+                    <button
+                      aria-label="Mark today's discipline streak"
+                      className="flex flex-col items-center gap-2"
+                      disabled={todayTapProgress.isSaving}
+                      onClick={event => {
+                        event.stopPropagation();
+                        todayTapProgress.onClick?.();
+                      }}
+                      type="button"
+                    >
+                      <div
+                        className={cn(
+                          'flex size-10 items-center justify-center rounded-full border transition-colors',
+                          'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/15',
+                          todayTapProgress.isSaving
+                            ? 'pointer-events-none opacity-60'
+                            : 'cursor-pointer'
+                        )}
+                      />
+                      <span className="text-xs font-semibold text-amber-400">{label}</span>
+                    </button>
+                  </div>
                 );
               }
 
               if (canToggle) {
                 return (
-                  <button
-                    className="flex cursor-pointer flex-col items-center gap-2"
-                    key={day.date ?? `${label}-${index}`}
+                  <div
+                    className="flex flex-col items-center gap-2"
+                    key={day.key}
                     ref={index === activeDayIndex ? activeDayRef : null}
-                    onClick={() => {
-                      if (!day.date) return;
-                      onMonthDayToggle?.(day.date, !day.active);
-                    }}
-                    type="button"
                   >
-                    {content}
-                  </button>
+                    <button
+                      className="flex cursor-pointer flex-col items-center gap-2"
+                      onClick={() => {
+                        if (!day.date) return;
+                        onMonthDayToggle?.(day.date, !day.active);
+                      }}
+                      type="button"
+                    >
+                      {content}
+                    </button>
+                  </div>
                 );
               }
 
               return (
                 <div
                   className="flex flex-col items-center gap-2"
-                  key={day.date ?? `${label}-${index}`}
+                  key={day.key}
                   ref={index === activeDayIndex ? activeDayRef : null}
                 >
                   {content}
@@ -205,20 +237,20 @@ export const CommunicationStreakCard = ({
 
         <Separator className="border-dashed" />
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-1">
-          <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            Longest Streak
-          </p>
-          <p className="text-2xl font-bold">{longestStreak} days</p>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-1">
+            <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              Longest Streak
+            </p>
+            <p className="text-2xl font-bold">{longestStreak} days</p>
+          </div>
+          <div className="space-y-1 text-right">
+            <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
+              Total Practice Days
+            </p>
+            <p className="text-2xl font-bold">{totalPracticeDays}</p>
+          </div>
         </div>
-        <div className="space-y-1 text-right">
-          <p className="text-muted-foreground text-xs font-semibold uppercase tracking-wide">
-            Total Practice Days
-          </p>
-          <p className="text-2xl font-bold">{totalPracticeDays}</p>
-        </div>
-      </div>
       </CardContent>
     </Card>
   );
