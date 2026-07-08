@@ -1,8 +1,22 @@
 const MAX_MESSAGE_LENGTH = 4000;
 export type ChatApiMode = "responses" | "conversation";
 const CHAT_FUNCTION_PATH = "/.netlify/functions/chat";
-const DEFAULT_MODEL = "gpt-4o-mini";
 export const STREAM_END_MARKER = "__BLAZE_STREAM_END__";
+
+const trimEnv = (value: string | undefined) => {
+  if (!value) return undefined;
+  const normalized = value.trim().replace(/^['"]|['"]$/g, "");
+  return normalized || undefined;
+};
+
+const getLocalModel = () => trimEnv(import.meta.env.VITE_OPENAI_MODEL) || "gpt-4.1-mini";
+
+const getLocalMaxOutputTokens = () => {
+  const value = Number(trimEnv(import.meta.env.VITE_OPENAI_MAX_OUTPUT_TOKENS));
+  return Number.isFinite(value) && value > 0 ? value : 1000;
+};
+
+const getDefaultConversationId = () => trimEnv(import.meta.env.VITE_THREAD_ID);
 
 const normalizeChatError = (error: unknown) => {
   if (
@@ -28,6 +42,10 @@ export const getOrCreateThreadId = async (
   }
 
   if (candidateId?.startsWith("conv_")) return candidateId;
+
+  const defaultConversationId = getDefaultConversationId();
+  if (defaultConversationId?.startsWith("conv_")) return defaultConversationId;
+
   return undefined;
 };
 
@@ -114,6 +132,7 @@ const sendMessageViaBrowserOpenAI = async ({
   const contextId = await getOrCreateThreadId(conversationId, mode);
   const payload: {
     model: string;
+    max_output_tokens: number;
     input: Array<{
       role: "user";
       content: Array<
@@ -125,7 +144,8 @@ const sendMessageViaBrowserOpenAI = async ({
     previous_response_id?: string;
     conversation?: string;
   } = {
-    model: DEFAULT_MODEL,
+    model: getLocalModel(),
+    max_output_tokens: getLocalMaxOutputTokens(),
     input: [
       {
         role: "user",

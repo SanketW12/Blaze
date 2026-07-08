@@ -3,14 +3,22 @@ import OpenAI from "openai";
 type ChatApiMode = "responses" | "conversation";
 
 const MAX_MESSAGE_LENGTH = 4000;
-const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-const getDefaultConversationId = () => {
-  const value = process.env.OPENAI_CONVERSATION_ID;
+const trimEnv = (value: string | undefined) => {
   if (!value) return undefined;
   const normalized = value.trim().replace(/^['"]|['"]$/g, "");
   return normalized || undefined;
 };
+
+const DEFAULT_MODEL = trimEnv(process.env.OPENAI_MODEL) || "gpt-4.1-mini";
+
+const getMaxOutputTokens = () => {
+  const value = Number(trimEnv(process.env.OPENAI_MAX_OUTPUT_TOKENS));
+  return Number.isFinite(value) && value > 0 ? value : 1000;
+};
+
+const getDefaultConversationId = () =>
+  trimEnv(process.env.OPENAI_CONVERSATION_ID) ?? trimEnv(process.env.OPENAI_THREAD_ID);
 
 const getClient = () => {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -118,6 +126,7 @@ export const handler = async (event: { httpMethod: string; body: string | null }
 
     const requestBody: {
       model: string;
+      max_output_tokens: number;
       input: Array<{
         role: "user";
         content: Array<
@@ -130,6 +139,7 @@ export const handler = async (event: { httpMethod: string; body: string | null }
       conversation?: string;
     } = {
       model: DEFAULT_MODEL,
+      max_output_tokens: getMaxOutputTokens(),
       input: [
         {
           role: "user",

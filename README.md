@@ -51,18 +51,18 @@ VITE_FIREBASE_MEASUREMENT_ID=
 # Frontend -> Netlify Function (optional override)
 VITE_CHAT_FUNCTION_URL=/.netlify/functions/chat
 
-# Server-side only (Netlify)
-OPENAI_API_KEY=
-OPENAI_CONVERSATION_ID=
-OPENAI_MODEL=gpt-4o-mini
+# Local dev fallback only (never set these in Netlify UI)
+VITE_API_KEY=
+VITE_THREAD_ID=
+VITE_ASSISTANT_ID=
+VITE_OPENAI_MODEL=gpt-4.1-mini
+VITE_OPENAI_MAX_OUTPUT_TOKENS=1000
 ```
 
 Notes:
 
-- Do not use `VITE_API_KEY` for OpenAI anymore.
-- Set `OPENAI_API_KEY` in Netlify environment variables (server-side only).
-- `OPENAI_CONVERSATION_ID` is optional default conversation context for conversation mode.
-- Local fallback: with plain `npm run dev`, if `/.netlify/functions/chat` is unavailable, the app can use `VITE_API_KEY` in development only.
+- Production OpenAI secrets belong in **Netlify UI → Site settings → Environment variables** (server-side only, no `VITE_` prefix).
+- Local fallback: with plain `npm run dev`, if `/.netlify/functions/chat` is unavailable, the app can use the `VITE_*` OpenAI keys in development only.
 
 ### 3) Run locally
 
@@ -113,7 +113,18 @@ If you still hit stale quota once after upgrade, clear site storage and reload.
 - Chat requests are served by `netlify/functions/chat.ts`.
 - `netlify.toml` sets `SECRETS_SCAN_OMIT_KEYS` for Firebase public config keys.
 - Keep secrets scanning enabled.
-- Remove `VITE_API_KEY` from Netlify UI env vars and add `OPENAI_API_KEY` instead.
+- Set these in **Netlify UI → Site settings → Environment variables** (server-side only):
+
+```env
+OPENAI_API_KEY=
+OPENAI_THREAD_ID=
+OPENAI_ASSISTANT_ID=
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_MAX_OUTPUT_TOKENS=1000
+```
+
+- Optional alias: `OPENAI_CONVERSATION_ID` (used instead of `OPENAI_THREAD_ID` when both are set).
+- Do **not** add `VITE_API_KEY`, `VITE_THREAD_ID`, or other `VITE_*` OpenAI keys to Netlify UI — they would be bundled into the client.
 
 ## App Lock Behavior
 

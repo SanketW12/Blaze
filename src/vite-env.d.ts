@@ -8,7 +8,13 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_STORAGE_BUCKET: string;
   readonly VITE_FIREBASE_MESSAGING_SENDER_ID: string;
   readonly VITE_FIREBASE_APP_ID: string;
+  readonly VITE_FIREBASE_MEASUREMENT_ID?: string;
+  /** Local dev fallback only — use OPENAI_API_KEY in Netlify UI for production */
   readonly VITE_API_KEY?: string;
+  readonly VITE_THREAD_ID?: string;
+  readonly VITE_ASSISTANT_ID?: string;
+  readonly VITE_OPENAI_MODEL?: string;
+  readonly VITE_OPENAI_MAX_OUTPUT_TOKENS?: string;
   readonly VITE_CHAT_FUNCTION_URL?: string;
 }
 
